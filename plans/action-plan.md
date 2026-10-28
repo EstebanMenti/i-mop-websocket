@@ -82,6 +82,25 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
 - **Resultado:** Creados `README.md`, `plans/action-plan.md` y 5 documentos en `docs/`.
 - **Pendiente:** Aprobación del usuario y comienzo de Fase 1.
 
+### 2026-10-28 — Sesión 2: Implementación completa (Fases 1-4)
+- **Objetivo:** Implementar la aplicación end-to-end siguiendo las reglas aprobadas.
+- **Resultado:**
+  - Scaffolding completo: `pyproject.toml` (ruff, mypy, pytest, extras dev/build), `.gitignore`, `.pre-commit-config.yaml`.
+  - Dominio puro (`src/imop/core/`): `models` (JsonPayload, FilterRule, DisplayMessage, ServerStatus), `parser` (MessageParseError), `filters` (FilterManager: prefijos sobre clave raíz, case-insensitive; sin filtros → mostrar todo), `pipeline` (parseo → filtros → logs → display).
+  - Red (`src/imop/network/`): `WebSocketServer` asyncio (websockets 13+ API), `ClientRegistry` con broadcast (base del envío futuro al ESP32).
+  - Logs (`src/imop/logging_service/`): `FilterLogManager` con RotatingFileHandler por filtro (5 MiB × 3 backups), activable en caliente.
+  - GUI PySide6 (`src/imop/gui/`): `MainWindow`, `ServerPanel` (puerto/start/stop/estado/clientes), `FilterPanel` (5 filtros en vivo), `MessagePanel` (colores por clave raíz, timestamps, límite 1000 filas), `LogSettingsPanel`, `ServerWorker` (QThread + asyncio loop, señales thread-safe).
+  - Config persistente atómica en `~/.imop/config.json`; CLI `--port/--version`; entrada `python -m imop` y `imop`.
+  - Tests: **30 passed** (unit: parser/filters/pipeline/config; network: servidor real con cliente websockets; GUI: smoke offscreen).
+  - Calidad: `ruff check` ✓, `ruff format` ✓, `mypy` ✓ (0 errores).
+  - Script E2E manual: `scripts/e2e_send.py` (envía JSON de ejemplo a la GUI).
+- **Decisiones técnicas registradas:**
+  - Paquete `logging_service` (no `logging`) para evitar ambigüedad con el stdlib — ARCHITECTURE.md actualizado.
+  - `theme.py` movido a nivel de paquete (módulo puro, importable desde dominio) — ARCHITECTURE.md actualizado.
+  - `websockets` >= 13 con API moderna `websockets.asyncio.server`.
+  - Git: `main` (docs) → `develop` → `feature/scaffolding-e-implementacion` según GIT_WORKFLOW.md.
+- **Pendiente:** Verificación manual E2E con GUI por parte del usuario; empaquetado PyInstaller (Fase 6); manual de usuario (Fase 3-docs).
+
 ---
 
 ## 5. Convenciones transversales
