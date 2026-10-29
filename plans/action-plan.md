@@ -112,6 +112,15 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
 - **Rama:** `feature/ack-seq` (desde `develop`).
 - **Pendiente:** Verificar con el ESP32 real que recibe y usa el ACK para retransmisiones.
 
+### 2026-10-29 — Sesión 4: Reloj en barra de estado + contador de paquetes
+- **Objetivo (pedido del usuario):** hora en la esquina inferior derecha; contador de paquetes recibidos que se restablezca con "Limpiar".
+- **Resultado:**
+  - [`gui/main_window.py`](../src/imop/gui/main_window.py): reloj `HH:MM:SS` como widget permanente de la barra de estado (esquina inferior derecha), actualizado por `QTimer` cada 1 s.
+  - [`gui/panels/message_panel.py`](../src/imop/gui/panels/message_panel.py): etiqueta "Paquetes: N" junto al botón Limpiar; se incrementa con cada mensaje y `clear_all()` (botón o programático) la restablece a 0.
+  - Smoke tests ampliados: contador, reset con botón y formato del reloj → **36 passed**, ruff/mypy en verde.
+- **Rama:** `feature/reloj-y-contador` (desde `develop`).
+- **Pendiente:** Verificación visual del usuario en la GUI.
+
 ---
 
 ## 5. Convenciones transversales

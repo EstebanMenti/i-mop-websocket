@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QSplitter,
@@ -78,7 +80,22 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(vertical_splitter)
         self.setCentralWidget(central)
+        self._build_clock()
         self.statusBar().showMessage("Listo.")
+
+    def _build_clock(self) -> None:
+        """Crea el reloj permanente en la esquina inferior derecha."""
+        self._clock_label = QLabel()
+        self.statusBar().addPermanentWidget(self._clock_label)
+        self._clock_timer = QTimer(self)
+        self._clock_timer.setInterval(1000)
+        self._clock_timer.timeout.connect(self._update_clock)
+        self._update_clock()
+        self._clock_timer.start()
+
+    def _update_clock(self) -> None:
+        """Refresca la hora mostrada en la barra de estado."""
+        self._clock_label.setText(datetime.now().strftime("%H:%M:%S"))
 
     def _apply_config(self) -> None:
         """Vuelca la configuración cargada en los controles."""
