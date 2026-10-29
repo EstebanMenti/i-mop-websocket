@@ -53,8 +53,10 @@ def test_ventana_principal_se_construye(qapp: object, tmp_path: object) -> None:
     assert window.statusBar() is not None
 
     # Simular mensajes entrantes y verificar el contador de paquetes.
+    # (el render es por lotes: volcar el buffer antes de consultar la lista)
     window._on_message(_sample_message('sensor_temp | {"sensor_temp": 1}'))
     window._on_message(_sample_message('sensor_temp | {"sensor_temp": 2}'))
+    window.message_panel.flush_now()
     assert window.message_panel.list_widget.count() == 2
     assert window.message_panel.packet_count == 2
 
@@ -81,8 +83,38 @@ def test_limpiar_button_restablece_contador(qapp: object, tmp_path: object) -> N
     config = AppConfig(log_dir=tmp_path)  # type: ignore[arg-type]
     window = MainWindow(config)
     window._on_message(_sample_message("x | {}"))
+    window.message_panel.flush_now()
     assert window.message_panel.packet_count == 1
 
     window.message_panel.clear_button.click()
+    assert window.message_panel.packet_count == 0
+    window.close()
+
+
+def test_alta_tasa_de_mensajes_lote(qapp: object, tmp_path: object) -> None:
+    """A alta tasa, el render por lotes mantiene la lista acotada y el buffer vacío."""
+    from imop.config import AppConfig
+    from imop.constants import MAX_DISPLAY_MESSAGES
+    from imop.gui.main_window import MainWindow
+
+    config = AppConfig(log_dir=tmp_path)  # type: ignore[arg-type]
+    window = MainWindow(config)
+
+    total = 1500  # ~15 s a 100 msg/s, el escenario que congelaba la GUI
+    for i in range(total):
+        window._on_message(_sample_message(f'sensor_temp | {{"n": {i}}}'))
+
+    assert window.message_panel.packet_count == total
+    assert window.message_panel.pending_count > 0  # todavía no se pintó todo
+
+    window.message_panel.flush_now()
+    assert window.message_panel.pending_count == 0
+    assert window.message_panel.list_widget.count() == MAX_DISPLAY_MESSAGES
+
+    # "Limpiar" también descarta el buffer pendiente.
+    window._on_message(_sample_message('sensor_temp | {"n": 9999}'))
+    window.message_panel.clear_all()
+    window.message_panel.flush_now()
+    assert window.message_panel.list_widget.count() == 0
     assert window.message_panel.packet_count == 0
     window.close()
