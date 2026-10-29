@@ -101,6 +101,17 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
   - Git: `main` (docs) → `develop` → `feature/scaffolding-e-implementacion` según GIT_WORKFLOW.md.
 - **Pendiente:** Verificación manual E2E con GUI por parte del usuario; empaquetado PyInstaller (Fase 6); manual de usuario (Fase 3-docs).
 
+### 2026-10-29 — Sesión 3: ACK por seq + robustez de conexión
+- **Objetivo:** El servidor debe confirmar cada mensaje con el `seq` recibido del cliente; además, los tracebacks por desconexiones abruptas del ESP32 ensuciaban el log.
+- **Resultado:**
+  - [`network/server.py`](../src/imop/network/server.py): si el JSON incluye `"seq"` entero → responde `{"ack_seq": <seq>, "status": "ok|error"}`; sin `seq` no responde (retrocompatible).
+  - Manejo limpio de `ConnectionClosed` / `ConnectionResetError` / `OSError` en el handler (INFO, sin tracebacks).
+  - [`scripts/e2e_send.py`](../scripts/e2e_send.py): ahora envía mensajes con `seq` e imprime el ACK recibido.
+  - 5 tests nuevos del ACK (ok, error de callback, sin seq, seq no entero, JSON inválido) → **35 passed**, ruff/mypy en verde.
+  - Documentado el protocolo en [docs/ARCHITECTURE.md §4.1](ARCHITECTURE.md).
+- **Rama:** `feature/ack-seq` (desde `develop`).
+- **Pendiente:** Verificar con el ESP32 real que recibe y usa el ACK para retransmisiones.
+
 ---
 
 ## 5. Convenciones transversales
