@@ -147,6 +147,16 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
 - **Rama:** `feature/protocolo-v1` (desde `develop`).
 - **Pendiente:** Implementación (Fase 5): registro de comandos en GUI + botones, `file_pull` con canal binario, soporte `bytes` en el handler del servidor.
 
+### 2026-10-29 — Sesión 7: Corrección de congelamiento con alta tasa de mensajes
+- **Objetivo (reporte del usuario):** con ~6000 muestras en 60 s (100 msg/s), la GUI se congelaba.
+- **Causa raíz:** cada mensaje disparaba, uno por uno, la señal Qt → creación de `QListWidgetItem` + `addItem` + actualización del contador + recorte de lista + `scrollToBottom` → un repaint completo por mensaje. A 100 msg/s el event loop de Qt quedaba saturado solo pintando.
+- **Resultado:**
+  - [`gui/panels/message_panel.py`](../src/imop/gui/panels/message_panel.py): **render por lotes** — los mensajes entrantes se acumulan en un buffer (deque acotado) y se pintan cada 100 ms en un solo pase (`setUpdatesEnabled(False)` → inserción → recorte único → `scrollToBottom` → repintado). Tope de 500 ítems por volcado; `setUniformItemSizes(True)`; el contador de paquetes sigue contando en tiempo real.
+  - API nueva: `flush_now()` (volcado inmediato del buffer), `pending_count` (mensajes aún no pintados). `clear_all()` descarta también el buffer.
+  - Test nuevo de alta tasa (1500 mensajes de una vez: lista acotada a 1000, contador exacto, buffer vacío tras `flush_now`) → **41 passed**, ruff/mypy en verde.
+- **Rama:** `feature/perf-render-lote` (desde `develop`).
+- **Pendiente:** Validación del usuario con el flujo real del ESP32 (~100 msg/s sostenidos).
+
 ---
 
 ## 5. Convenciones transversales
