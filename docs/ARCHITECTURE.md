@@ -227,5 +227,5 @@ Implementación: [`network/discovery.py`](../src/imop/network/discovery.py)
 ## 7. Extensibilidad futura (envío de teclas)
 
 - `ClientRegistry` ya contempla múltiples clientes: el panel de teclas futuras solo necesita `registry.send_all(json)`.
-- Los atajos se definirán en configuración como pares *(tecla → JSON)*, renderizados como botones configurables.
-- El protocolo de envío se documentará en `docs/user/protocol.md` (Fase 5).
+- Los atajos se definirán en configuración como pares *(tecla → JSON)*, renderizados como botones configurables (generados desde el registro de comandos).
+- **Protocolo definido:** comandos por JSON-RPC 2.0 (subconjunto) y archivos por frames binarios → ver [docs/user/protocol.md](user/protocol.md) (v1.0). Toda extensión debe seguir sus reglas.

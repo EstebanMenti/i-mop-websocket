@@ -26,6 +26,8 @@ Aplicación de escritorio en Python que:
 | 2026-10-28 | Gestión de proyecto: **pyproject.toml + uv/pip** | Estándar moderno (PEP 621) | 📝 Propuesta |
 | 2026-10-28 | Flujo Git: **GitFlow simplificado** | Ver [docs/GIT_WORKFLOW.md](../docs/GIT_WORKFLOW.md) | 📝 Propuesta |
 | 2026-10-28 | Empaquetado Windows: **PyInstaller (onefile/onedir)** | Estándar para apps Qt | 📝 Propuesta |
+| 2026-10-29 | Protocolo de comandos: **JSON-RPC 2.0 (subconjunto)** + telemetría JSON existente | Estandarizado, bidireccional, correlacionado por `id`, retrocompatible con el ACK por `seq` | ✅ Aprobada por el usuario |
+| 2026-10-29 | Transferencia de archivos: **frames binarios nativos** (control por JSON, datos crudos, CRC32, reanudable) | Sin overhead de codificación, RAM constante en el ESP32, convivencia con telemetría vía `transfer` id | ✅ Aprobada por el usuario |
 
 ## 3. Roadmap por fases
 
@@ -133,6 +135,17 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
   - Documentado en [docs/ARCHITECTURE.md §4.2](../docs/ARCHITECTURE.md).
 - **Rama:** `feature/zeroconf-discovery` (desde `develop`).
 - **Pendiente:** Verificar descubrimiento con un ESP32 real en la misma red (firewall UDP 5353).
+
+### 2026-10-29 — Sesión 6: Definición del protocolo de comandos y archivos
+- **Objetivo (pedido del usuario):** investigar formatos para el envío de comandos al ESP32 (botones con y sin parámetros, `set/get` UWB, listado de la SD) y la recepción de archivos; luego unificar: **comandos por JSON, archivos por frames binarios**, en un documento que fije las reglas para que todo comando nuevo sea coherente.
+- **Investigación (resumen):**
+  - Comparados: texto tipo AT, JSON a medida, **JSON-RPC 2.0**, MessagePack/CBOR, Protobuf. Veredicto: JSON-RPC 2.0 en subconjunto — estandarizado, bidireccional, correlacionado por `id`, retrocompatible con el ACK por `seq`; lo binario queda como escalamiento solo si aparece streaming de alta frecuencia.
+  - Recepción de archivos: WebSocket soporta frames binarios nativos. Propuesta: control JSON-RPC (`file_pull`/`file_push`/`file_cancel`/`file_ack`) + datos crudos por frames binarios (chunks de 4 KiB, CRC32, reanudable por `offset`, una transferencia a la vez, RAM constante en el ESP32).
+- **Resultado:**
+  - Creado [docs/user/protocol.md](../docs/user/protocol.md) **v1.0**: principios, tipos de mensaje, envelope JSON-RPC, política de IDs (`id` incremental App ≥ 1 / ESP32 ≥ 1000000, `seq` de telemetría, `transfer` de archivo), nomenclatura de métodos (`verbo_objeto`, vocabulario cerrado get/set/do/list), convención de parámetros (epoch UTC + tz, MAC hex, rutas POSIX), tabla de errores (estándar `-326xx` + aplicación `-320xx`), handshake `hello`, transferencia de archivos, **catálogo v1** (`get_info`, `ping`, `set/get_hora`, `set/get_uwb`, `sd_list`, `file_pull/push/ack/cancel`), checklist obligatorio para agregar comandos y reglas de compatibilidad.
+  - Decisiones aprobadas registradas en §2 de este documento.
+- **Rama:** `feature/protocolo-v1` (desde `develop`).
+- **Pendiente:** Implementación (Fase 5): registro de comandos en GUI + botones, `file_pull` con canal binario, soporte `bytes` en el handler del servidor.
 
 ---
 
