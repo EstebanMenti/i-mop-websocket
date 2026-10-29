@@ -121,6 +121,19 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
 - **Rama:** `feature/reloj-y-contador` (desde `develop`).
 - **Pendiente:** Verificación visual del usuario en la GUI.
 
+### 2026-10-29 — Sesión 5: Descubrimiento automático mDNS/Zeroconf
+- **Objetivo (pedido del usuario):** revisar un texto sobre auto-descubrimiento mDNS/Zeroconf e implementar la función correspondiente.
+- **Revisión del texto:** la idea era correcta pero con roles invertidos — aquí la **notebook es el servidor** (anuncia `_imop._tcp` con la librería Python `zeroconf`) y **el ESP32 es el cliente que descubre** (con `ESPmDNS`, no con `bonjour-service` de Node.js). `Test-NetConnection DESKTOP-XXX.local -Port 1001` queda como diagnóstico manual opcional. Correcciones documentadas en [docs/user/faq.md](../docs/user/faq.md).
+- **Resultado:**
+  - [`network/discovery.py`](../src/imop/network/discovery.py): `ServiceAnnouncer` (servicio `_imop._tcp.local.`, instancia `i-mop-<hostname>`, TXT `proto=ws,app=imop`); errores de mDNS solo se loguean (anuncio opcional, nunca bloquea el servidor).
+  - [`gui/panels/server_panel.py`](../src/imop/gui/panels/server_panel.py): checkbox "Anunciar servicio en la red (mDNS/Zeroconf)".
+  - [`gui/main_window.py`](../src/imop/gui/main_window.py): arranque/parada del anuncio junto al servidor; limpieza al cerrar; persistido como `announce_enabled` en [config.py](../src/imop/config.py).
+  - [`pyproject.toml`](../pyproject.toml): dependencia `zeroconf>=0.131`.
+  - 4 tests nuevos ([tests/network/test_discovery.py](../tests/network/test_discovery.py), incluye descubrimiento real con `ServiceBrowser`) → **40 passed**, ruff/mypy en verde.
+  - Documentado en [docs/ARCHITECTURE.md §4.2](../docs/ARCHITECTURE.md).
+- **Rama:** `feature/zeroconf-discovery` (desde `develop`).
+- **Pendiente:** Verificar descubrimiento con un ESP32 real en la misma red (firewall UDP 5353).
+
 ---
 
 ## 5. Convenciones transversales
