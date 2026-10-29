@@ -27,6 +27,7 @@ from imop.gui.panels.message_panel import MessagePanel
 from imop.gui.panels.server_panel import ServerPanel
 from imop.gui.workers import ServerWorker
 from imop.logging_service.handlers import FilterLogManager
+from imop.network.discovery import ServiceAnnouncer, default_instance_name
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ class MainWindow(QMainWindow):
         self._config = config
         self._pipeline: MessagePipeline | None = None
         self._worker: ServerWorker | None = None
+        self._announcer: ServiceAnnouncer | None = None
 
         self._build_ui()
         self._apply_config()
@@ -100,6 +102,7 @@ class MainWindow(QMainWindow):
     def _apply_config(self) -> None:
         """Vuelca la configuración cargada en los controles."""
         self.server_panel.port_spin.setValue(self._config.port)
+        self.server_panel.set_announce_enabled(self._config.announce_enabled)
         self.filter_panel.set_rules(self._config.filters)
         self.log_panel.set_enabled_checked(self._config.log_enabled)
 
@@ -139,9 +142,25 @@ class MainWindow(QMainWindow):
         self._worker.error_occurred.connect(self._on_server_error)
         self.server_panel.set_status(ServerStatus.STARTING)
         self._worker.start()
+        self._start_announcer(port)
+
+    def _start_announcer(self, port: int) -> None:
+        """Publica el servicio mDNS si el checkbox está activado.
+
+        Args:
+            port: Puerto del servidor a anunciar.
+        """
+        if not self.server_panel.is_announce_enabled():
+            return
+        self._announcer = ServiceAnnouncer(default_instance_name(), port)
+        self._announcer.start()
+        if self._announcer.running:
+            self.statusBar().showMessage(
+                f"Servicio mDNS anunciado como '{self._announcer.instance_name}'"
+            )
 
     def _on_stop(self) -> None:
-        """Detiene el servidor de forma ordenada."""
+        """Detiene el servidor y el anuncio mDNS de forma ordenada."""
         if self._worker is None:
             return
         self._worker.stop()
@@ -149,6 +168,9 @@ class MainWindow(QMainWindow):
             logger.warning("El servidor no terminó en 5 s; se abandona el hilo")
         self._worker = None
         self._pipeline = None
+        if self._announcer is not None:
+            self._announcer.stop()
+            self._announcer = None
 
     def _on_message(self, message: DisplayMessage) -> None:
         """Muestra un mensaje procesado en el panel inferior.
@@ -209,5 +231,6 @@ class MainWindow(QMainWindow):
         self._config.filters = self.filter_panel.rules()
         self._config.log_enabled = self.log_panel.is_enabled()
         self._config.log_dir = Path(self.log_panel.log_dir())
+        self._config.announce_enabled = self.server_panel.is_announce_enabled()
         save_config(self._config)
         super().closeEvent(event)  # type: ignore[arg-type]

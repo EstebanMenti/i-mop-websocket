@@ -25,6 +25,7 @@ classifiers = [
 dependencies = [
     "PySide6>=6.6",
     "websockets>=13",
+    "zeroconf>=0.131",
 ]
 
 [project.optional-dependencies]

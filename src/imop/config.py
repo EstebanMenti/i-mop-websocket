@@ -39,6 +39,7 @@ class AppConfig:
     )
     log_enabled: bool = False
     log_dir: Path = DEFAULT_LOG_DIR
+    announce_enabled: bool = True
 
 
 def load_config(path: Path = CONFIG_FILE) -> AppConfig:
@@ -63,6 +64,7 @@ def load_config(path: Path = CONFIG_FILE) -> AppConfig:
     config.port = int(data.get("port", config.port))
     config.log_enabled = bool(data.get("log_enabled", config.log_enabled))
     config.log_dir = Path(data.get("log_dir", str(config.log_dir)))
+    config.announce_enabled = bool(data.get("announce_enabled", config.announce_enabled))
 
     raw_filters = data.get("filters", [])
     filters: list[FilterRule] = []
@@ -88,6 +90,7 @@ def save_config(config: AppConfig, path: Path = CONFIG_FILE) -> None:
         "port": config.port,
         "log_enabled": config.log_enabled,
         "log_dir": str(config.log_dir),
+        "announce_enabled": config.announce_enabled,
         "filters": [{"name": rule.name, "enabled": rule.enabled} for rule in config.filters],
     }
     path.parent.mkdir(parents=True, exist_ok=True)

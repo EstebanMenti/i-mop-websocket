@@ -108,3 +108,53 @@ Redes corporativas suelen bloquear puertos no estándar. Probar con 80, 8080 u 8
 ## ¿Dónde se guardan los logs por filtro?
 
 En la carpeta elegida en el panel *Guardado de logs* (por defecto `C:\Users\<usuario>\.imop\logs`). Cada filtro habilitado genera `<prefijo>.log`, una línea JSON por mensaje, con rotación a 5 MiB (3 backups).
+
+## ¿Cómo hago que el ESP32 encuentre el servidor sin configurar la IP a mano? (mDNS / Zeroconf)
+
+**Revisión del texto original:** la idea es correcta (publicar el servicio con mDNS para que los clientes lo descubran y evitar hardcodear IPs), pero con **dos imprecisiones para este proyecto**:
+
+1. **Los roles están invertidos.** El texto original describe un cliente Node.js que *descubre* otros servicios. Aquí el escenario es al revés: **la notebook es el SERVIDOR** (anuncia `_imop._tcp` con la librería Python [`zeroconf`](https://github.com/python-zeroconf/python-zeroconf)) y **el ESP32 es el cliente que descubre** (con `ESPmDNS` incluido en el core de Arduino-ESP32; el `bonjour-service` de Node.js no aplica salvo que el descubridor sea otro PC).
+2. **`Test-NetConnection DESKTOP-UDO7SS5.local -Port 1001`** solo sirve para verificar *a mano* desde otro PC con PowerShell. De hecho, mDNS ya resuelve el nombre → IP; si el ESP32 obtuvo host y puerto vía `queryService`, no hace falta esa prueba. Úsala solo como diagnóstico.
+
+### Cómo funciona en la app
+
+- Panel *Servidor WebSocket* → checkbox **"Anunciar servicio en la red (mDNS/Zeroconf)"** (activado por defecto).
+- Al iniciar el servidor, se publica el servicio `_imop._tcp.local.` con nombre de instancia `i-mop-<hostname>` y el puerto configurado.
+- Al detener el servidor o cerrar la app, el anuncio se retira correctamente (goodbye packet).
+
+### Código de ejemplo para el ESP32 (descubrimiento)
+
+```cpp
+#include <WiFi.h>
+#include <ESPmDNS.h>
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin("TU_SSID", "TU_PASS");
+  while (WiFi.status() != WL_CONNECTED) delay(500);
+
+  if (!MDNS.begin("esp32-sensor")) {   // nombre propio en la red
+    Serial.println("mDNS fallo"); while (true) delay(1000);
+  }
+  // Buscar el servidor i-mop: consulta "_imop._tcp"
+  int n = MDNS.queryService("imop", "tcp");
+  if (n == 0) {
+    Serial.println("Servidor i-mop no encontrado");
+  } else {
+    Serial.printf("Servidor: %s:%u\n", MDNS.hostname(0).c_str(), MDNS.port(0));
+    webSocket.begin(MDNS.hostname(0), MDNS.port(0), "/");  // o resolver a IP
+    webSocket.setReconnectInterval(2000);
+  }
+}
+```
+
+### Requisitos y límites (diagnóstico)
+
+| Síntoma | Verificación | Solución |
+|---------|--------------|----------|
+| `queryService` devuelve 0 | ¿Checkbox activado y servidor iniciado? | Activar el anuncio / iniciar servidor |
+| Firewall bloquea el anuncio | UDP **5353** entrante debe estar permitido | `netsh advfirewall firewall add rule name="mDNS" dir=in action=allow protocol=UDP localport=5353` |
+| No se descubre nunca | ESP32 y PC en el **mismo segmento** (mismo SSID/AP) | El multicast no atraviesa routers ni redes con *client isolation* |
+| Funciona por IP pero no por mDNS | `ping DESKTOP-XXX.local` desde otro PC | Problema de mDNS en la red: usar IP directa como fallback |
+
+> ℹ️ El anuncio es **opcional y no bloqueante**: si mDNS falla (permisos, red corporativa, etc.), se registra en el log y el servidor sigue funcionando normalmente por conexión directa a la IP.

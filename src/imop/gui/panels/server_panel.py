@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -59,11 +60,18 @@ class ServerPanel(QWidget):
         self.clients_label = QLabel("0")
         status_row.addWidget(self.clients_label)
 
+        self.announce_check = QCheckBox("Anunciar servicio en la red (mDNS/Zeroconf)")
+        self.announce_check.setToolTip(
+            "Permite que el ESP32 y otros equipos descubran este servidor "
+            "automáticamente buscando el servicio _imop._tcp en la red local."
+        )
+
         outer = self.findChild(QGroupBox)
         assert outer is not None
         outer_layout = QVBoxLayout()
         outer_layout.addLayout(row)
         outer_layout.addLayout(status_row)
+        outer_layout.addWidget(self.announce_check)
         outer.setLayout(outer_layout)
         layout.addWidget(outer)
 
@@ -95,3 +103,19 @@ class ServerPanel(QWidget):
             count: Cantidad actual de clientes.
         """
         self.clients_label.setText(str(count))
+
+    def is_announce_enabled(self) -> bool:
+        """Indica si el anuncio mDNS del servicio está activado.
+
+        Returns:
+            Estado del checkbox de anuncio.
+        """
+        return self.announce_check.isChecked()
+
+    def set_announce_enabled(self, enabled: bool) -> None:
+        """Establece el estado del checkbox de anuncio (carga de configuración).
+
+        Args:
+            enabled: Nuevo estado.
+        """
+        self.announce_check.setChecked(enabled)

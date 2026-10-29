@@ -77,6 +77,7 @@ i-mop-websocket/
 │       │   └── pipeline.py       # MessagePipeline: parseo → filtros → logs → display
 │       ├── network/
 │       │   ├── server.py         # WebSocketServer (asyncio + websockets)
+│       │   ├── discovery.py      # ServiceAnnouncer: anuncio mDNS/Zeroconf del servicio
 │       │   └── client_registry.py# Clientes conectados + broadcast (base del envío futuro)
 │       ├── logging_service/      # (no "logging": evita ambigüedad con el stdlib)
 │       │   └── handlers.py       # FilterLogManager: RotatingFileHandler por filtro
@@ -127,6 +128,7 @@ Instalación (idéntica en los 3 SO): `pip install -e .[dev]`.
 |---------|-----|
 | `PySide6` | GUI |
 | `websockets` | Servidor WebSocket asyncio |
+| `zeroconf` | Anuncio mDNS/Zeroconf del servidor en la red local |
 | `pyinstaller` *(dev)* | Empaquetado |
 | `pytest`, `pytest-qt`, `pytest-asyncio`, `ruff`, `mypy`, `pre-commit` *(dev)* | Calidad |
 
@@ -167,6 +169,45 @@ en la misma conexión después de procesarlo:
 
 Implementación: [`network/server.py`](../src/imop/network/server.py) (`_extract_seq` / `_send_ack`).
 El ESP32 puede usar el `status` del ACK para retransmitir mensajes perdidos.
+
+### 4.2 Descubrimiento automático del servidor (mDNS / Zeroconf)
+
+Para evitar configurar a mano la IP del PC en cada ESP32, la app puede **anunciar** el
+servidor WebSocket en la red local mediante mDNS (Bonjour / Zeroconf / Avahi):
+
+| Aspecto | Valor |
+|---------|-------|
+| Servicio anunciado | `_imop._tcp.local.` |
+| Nombre de instancia | `i-mop-<hostname>` (p. ej. `i-mop-DESKTOP-UDO7SS5.local.`) |
+| Puerto anunciado | el puerto configurado del servidor |
+| TXT records | `proto=ws`, `app=imop` |
+| Biblioteca | [`zeroconf`](https://github.com/python-zeroconf/python-zeroconf) |
+
+- Activación: checkbox **"Anunciar servicio en la red (mDNS/Zeroconf)"** en el panel
+  *Servidor WebSocket* (persistido en la configuración como `announce_enabled`).
+- El anuncio arranca/para junto con el servidor y se cierra limpiamente al salir.
+- El ESP32 (rol de **cliente** que descubre) usa `ESPmDNS`:
+
+```cpp
+#include <ESPmDNS.h>
+// ...
+if (MDNS.begin("esp32-sensor")) {
+    int n = MDNS.queryService("imop", "tcp");   // busca "_imop._tcp"
+    if (n > 0) {
+        String host = MDNS.hostname(0);          // p. ej. "DESKTOP-UDO7SS5"
+        uint16_t port = MDNS.port(0);            // p. ej. 1001
+        // conectar a host.local / IP resuelta
+    }
+}
+```
+
+Implementación: [`network/discovery.py`](../src/imop/network/discovery.py)
+(`ServiceAnnouncer`, `default_instance_name`, `SERVICE_TYPE`).
+
+> ⚠️ Limitaciones: el multicast mDNS solo funciona dentro del **mismo segmento de red**
+> (no atraviesa routers/AP con aislamiento de clientes) y requiere UDP **5353** abierto
+> en el firewall. Si falla, es solo un error logueado: el anuncio es opcional y el
+> servidor funciona igual sin él (conexión directa por IP siempre disponible).
 
 ## 5. Configuración persistente
 
