@@ -2,18 +2,27 @@
 
 Pertenece a la capa de red: no importa nada de la capa GUI. Se ejecuta
 dentro de un loop asyncio propio (hilo worker gestionado por ``gui.workers``).
+
+Protocolo de confirmación (ACK): si el mensaje del cliente incluye un campo
+``"seq"`` entero, el servidor responde con ``{"ack_seq": <seq>, "status": "ok|error"}``
+después de procesarlo. Mensajes sin ``seq`` no generan respuesta (retrocompatible).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from websockets.asyncio.server import Server, ServerConnection, serve
+from websockets.exceptions import ConnectionClosed
 
 from imop.network.client_registry import ClientRegistry
 
 logger = logging.getLogger(__name__)
+
+SEQ_KEY = "seq"
 
 
 class WebSocketServer:
@@ -76,28 +85,84 @@ class WebSocketServer:
     async def _handler(self, connection: ServerConnection) -> None:
         """Atiende una conexión de cliente hasta que se desconecta.
 
+        Las caídas abruptas de red (ESP32 que se apaga, Wi-Fi que se corta)
+        se registran en INFO sin propagar errores al framework.
+
         Args:
             connection: Conexión WebSocket entrante.
         """
         peer = connection.remote_address
         logger.debug("Cliente conectado: %s", peer)
         async with self.registry.register(connection):
-            async for raw in connection:
-                if isinstance(raw, str):
-                    self._dispatch(raw)
-                else:
-                    logger.debug("Frame binario ignorado de %s (%d bytes)", peer, len(raw))
+            try:
+                async for raw in connection:
+                    if isinstance(raw, str):
+                        await self._dispatch(connection, raw)
+                    else:
+                        logger.debug("Frame binario ignorado de %s (%d bytes)", peer, len(raw))
+            except ConnectionClosed as exc:
+                logger.info("Cliente %s cerró la conexión sin frame de cierre: %s", peer, exc)
+            except (ConnectionResetError, OSError) as exc:
+                logger.info("Cliente %s perdió la conexión de red: %s", peer, exc)
         logger.debug("Cliente desconectado: %s", peer)
 
-    def _dispatch(self, raw: str) -> None:
-        """Entrega un frame de texto al callback, aislando sus errores.
+    async def _dispatch(self, connection: ServerConnection, raw: str) -> None:
+        """Procesa un frame de texto y confirma con ACK si corresponde.
 
         Args:
+            connection: Conexión del cliente emisor.
             raw: Contenido de texto del frame.
         """
+        seq = self._extract_seq(raw)
         try:
             self._on_message(raw)
         except Exception:
             # El callback (pipeline) ya maneja JSON inválido; esto protege
             # contra errores inesperados sin tumbar la conexión.
             logger.exception("Error inesperado procesando mensaje de %d bytes", len(raw))
+            await self._send_ack(connection, seq, status="error")
+            return
+        await self._send_ack(connection, seq, status="ok")
+
+    @staticmethod
+    def _extract_seq(raw: str) -> int | None:
+        """Extrae el campo ``seq`` del mensaje si es un entero válido.
+
+        Args:
+            raw: Frame de texto crudo.
+
+        Returns:
+            El valor de ``seq``, o ``None`` si no existe o no es entero.
+        """
+        try:
+            payload: Any = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        seq = payload.get(SEQ_KEY)
+        if isinstance(seq, int) and not isinstance(seq, bool):
+            return seq
+        return None
+
+    @staticmethod
+    async def _send_ack(
+        connection: ServerConnection,
+        seq: int | None,
+        status: str,
+    ) -> None:
+        """Envía el ACK con el seq recibido (solo si el cliente envió seq).
+
+        Args:
+            connection: Conexión destino.
+            seq: Valor de seq a confirmar; ``None`` no envía nada.
+            status: ``"ok"`` o ``"error"`` según el resultado del procesamiento.
+        """
+        if seq is None:
+            return
+        ack = json.dumps({"ack_seq": seq, "status": status})
+        try:
+            await connection.send(ack)
+            logger.debug("ACK enviado: %s", ack)
+        except ConnectionClosed:
+            logger.debug("No se pudo enviar ACK %d: conexión cerrada", seq)

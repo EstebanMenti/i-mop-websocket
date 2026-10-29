@@ -153,6 +153,21 @@ sequenceDiagram
     UI->>UI: pinta fila con color y timestamp
 ```
 
+### 4.1 Protocolo de confirmación (ACK por `seq`)
+
+Si el mensaje del cliente incluye un campo `"seq"` **entero**, el servidor responde
+en la misma conexión después de procesarlo:
+
+| Mensaje del cliente | Respuesta del servidor |
+|---------------------|------------------------|
+| `{"seq": 7, "sensor_temp": {"value": 23.4}}` | `{"ack_seq": 7, "status": "ok"}` |
+| `{"seq": 8, ...}` con fallo interno del callback | `{"ack_seq": 8, "status": "error"}` |
+| Mensaje sin `seq`, o con `seq` no entero | *(sin respuesta — retrocompatible)* |
+| Frame no parseable como JSON | *(sin respuesta — se muestra como ERROR en la GUI)* |
+
+Implementación: [`network/server.py`](../src/imop/network/server.py) (`_extract_seq` / `_send_ack`).
+El ESP32 puede usar el `status` del ACK para retransmitir mensajes perdidos.
+
 ## 5. Configuración persistente
 
 - Ubicación: perfil de usuario (portable-friendly) — `QSettings("imop", "i-mop-websocket")` o `~/.imop/config.json`.
