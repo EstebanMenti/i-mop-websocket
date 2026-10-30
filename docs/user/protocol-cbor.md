@@ -63,7 +63,7 @@ hex: 84 00 01 02 A0
 | `0x0001-0x00FF` | Sistema | `0x0001 get_info` · `0x0002 ping` · `0x0003 set_hora` · `0x0004 get_hora` |
 | `0x0020-0x002F` | Archivos/SD | `0x0020 sd_list` · `0x0021 file_pull` · `0x0022 file_push` · `0x0023 file_cancel` · `0x0024 file_ack` |
 | `0x1000-0x1FFF` | Periféricos | `0x1010 set_uwb` · `0x1011 get_uwb` |
-| `0x8000-0x8FFF` | Telemetría (ESP32→App) | `0x8001 imu` · `0x8002 imu_batch` · `0x8003 uwb_range` · `0x8004 bat` · `0x8005 temp` |
+| `0x8000-0x8FFF` | Telemetría (ESP32→App) | `0x8001 imu` · `0x8002 imu_batch` · `0x8003 uwb_range` · `0x8004 bat` · `0x8005 temp` · `0x8006 imu_full_batch` |
 
 Reglas para asignar códigos nuevos (mismo espíritu que v1 §11):
 
@@ -272,7 +272,7 @@ Payload array de 7 elementos:
 [3, 42, 0x8001, [123456, 120, -15, 985, 12, -30, 2567]]
 → t=123456 ms; accel=(0.120, -0.015, 0.985) g; gyro=(1.2, -3.0, 256.7) dps
 hex: 84 03 18 2A 19 8001 87 1A 0001E240 18 78 2E 19 03D9
-     0C 38 1D 19 0A07                                      (24 bytes)
+     0C 38 1D 19 0A07                                      (25 bytes)
 ```
 
 *(El mismo sample en JSON v1 pesaría ~200 bytes: CBOR lo reduce ~8×.)*
@@ -308,6 +308,65 @@ Payload array de 3: `t_ms` · `mv` (uint, milivoltios) · `pct` (uint 0-100).
 ### 7.5 `temp` — 0x8005 (temperatura)
 
 Payload array de 2: `t_ms` · `centi_c` (i32, °C × 100; 23.45 °C → 2345). Reemplaza gradualmente a la telemetría JSON `sensor_temp`; mientras coexistan, la GUI acepta ambas.
+
+### 7.6 `imu_full_batch` — 0x8006 (ráfaga de la IMU completa, 100 Hz+)
+
+Lleva **los mismos datos que la telemetría IMU en JSON** (acelerómetro, aceleración lineal, giroscopio, magnetómetro, cuaternión y la
+máscara de sensores recibidos), a diferencia de `imu_batch` (0x8002), que solo trae acelerómetro y giroscopio.
+
+- `cid` = número de muestra (`seq`) de la **primera** muestra del lote. La muestra `k` (desde 0) tiene `seq = cid + k`.
+- Un lote solo contiene muestras de `seq` **consecutivos**.
+- Payload **mapa**: `1` t0_ms (uint, instante de la primera muestra, ms desde boot) · `2` period_us (uint, período nominal entre muestras)
+  · `3` samples (array de arrays de 17 enteros) · `4` sid (uint, identificador de sesión: aleatorio por arranque, distingue una placa
+  reiniciada de un reenvío).
+- `t(k) = t0_ms + k × period_us / 1000` (la marca individual de cada muestra no viaja).
+
+Cada muestra es un array posicional de 17 enteros:
+
+| Pos. | Campo | Tipo | Unidad / escala | Rango |
+|------|-------|------|-----------------|-------|
+| 0-2 | `ax`, `ay`, `az` | i16 | mili-g (como 0x8001) | ±32,7 g |
+| 3-5 | `lx`, `ly`, `lz` (aceleración lineal, sin gravedad) | i16 | mili-g | ±32,7 g |
+| 6-8 | `gx`, `gy`, `gz` | i16 | 0,1 °/s (como 0x8001) | ±3276,7 °/s |
+| 9-11 | `mx`, `my`, `mz` | i16 | 0,1 µT | ±3276,7 µT |
+| 12-15 | `qx`, `qy`, `qz`, `qw` (i, j, k, real) | i16 | Q14 (1 LSB = 1/16384) | ±2 |
+| 16 | `valid` | uint | máscara de sensores recibidos (bit 0 acelerómetro … bit 4 cuaternión; 31 = todos) | 0-31 |
+
+Valores fuera de rango se **saturan** al extremo del i16; valores no numéricos (NaN) se envían como 0.
+
+Ejemplo normativo — lote de 2 muestras, `cid` = 100, t0 = 1 000 000 ms, 10 ms entre muestras, sid = 0xDEADBEEF:
+
+```text
+[3, 100, 0x8006, {1: 1000000, 2: 10000, 3: [
+    [12, -4, 1000, 12, -4, 0, 5, 10, -20, 234, -123, -412, 0, 0, 11585, 11585, 31],
+    [14, -2, 1001, 14, -2, 1, 6, 9, -22, 235, -124, -411, 1, -1, 11585, 11585, 31]], 4: 3735928559}]
+hex: 84 03 18 64 19 8006 A4 01 1A 000F4240 02 19 2710 03 82
+     91 0C 23 19 03E8 0C 23 00 05 0A 33 18 EA 38 7A 39 019B 00 00 19 2D41 19 2D41 18 1F
+     91 0E 21 19 03E9 0E 21 01 06 09 35 18 EB 38 7B 39 019A 01 20 19 2D41 19 2D41 18 1F
+     04 1A DEADBEEF                                        (84 bytes)
+```
+
+Tamaño típico con valores reales del BNO085: **~34 bytes por muestra** (un lote de 25 muestras ≈ 855 bytes, entra en un solo paquete);
+la misma muestra en JSON v1 con claves largas ocupa ~424 bytes.
+
+### 7.7 Confirmación de `imu_full_batch`
+
+A diferencia del resto de la telemetría (§3: las notificaciones no tienen respuesta), `imu_full_batch` **se confirma** porque la placa
+guarda las muestras hasta que la App las recibe y reenvía lo no confirmado tras una reconexión.
+
+- Cuando la App procesa el lote responde **tipo `1`** con el mismo `cid` y `cmd`, y en la clave `1` el `seq` de la **última** muestra del
+  lote. La confirmación es **acumulativa**: vale para todas las muestras con `seq` menor o igual.
+- Si no pudo procesarlo responde **tipo `2`** con el código y el mensaje (§8). La placa lo cuenta como error y lo da igual por confirmado
+  (reenviar el mismo lote no lo arreglaría).
+- Tras una reconexión llegan lotes repetidos: la App los confirma igual y descarta las muestras con `seq` ya recibido para ese `sid`.
+
+```text
+[1, 100, 0x8006, {1: 101}]
+hex: 84 01 18 64 19 8006 A1 01 18 65                      (11 bytes)
+
+[2, 100, 0x8006, {1: -32603, 2: "error interno"}]
+hex: 84 02 18 64 19 8006 A2 01 39 7F5A 02 6D 6572726F7220696E7465726E6F   (27 bytes)
+```
 
 ## 8. Códigos de error
 
@@ -347,4 +406,5 @@ Frame binario CBOR **corrupto** (no decodifica o `version` de perfil violado): s
 
 | Fecha | Versión | Cambio |
 |-------|---------|--------|
+| 2026-10-30 | 2.0-draft | Agregado `imu_full_batch` (0x8006, §7.6) con los 16 valores de la IMU y la máscara `valid`, y su confirmación CBOR (§7.7). Corregido el tamaño del ejemplo `imu` §7.1 (25 bytes) |
 | 2026-10-30 | 2.0-draft | Propuesta inicial: perfil CBOR canónico, envelope `[tipo, cid, cmd, payload]`, registro de códigos, especificaciones completas con hex normativo (get_info, ping, set/get_hora, set/get_uwb, sd_list, file_*), telemetría IMU (imu/imu_batch), uwb_range, bat, temp |
