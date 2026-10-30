@@ -356,16 +356,17 @@ guarda las muestras hasta que la App las recibe y reenvía lo no confirmado tras
 
 - Cuando la App procesa el lote responde **tipo `1`** con el mismo `cid` y `cmd`, y en la clave `1` el `seq` de la **última** muestra del
   lote. La confirmación es **acumulativa**: vale para todas las muestras con `seq` menor o igual.
-- Si no pudo procesarlo responde **tipo `2`** con el código y el mensaje (§8). La placa lo cuenta como error y lo da igual por confirmado
-  (reenviar el mismo lote no lo arreglaría).
+- Si no pudo procesarlo responde **tipo `2`** con el código y el mensaje (§8) y, en la clave `3` (`data`), el `seq` de la última muestra
+  del lote. La placa lo cuenta como error y lo da igual por confirmado hasta ese `seq` (reenviar el mismo lote no lo arreglaría).
 - Tras una reconexión llegan lotes repetidos: la App los confirma igual y descarta las muestras con `seq` ya recibido para ese `sid`.
 
 ```text
 [1, 100, 0x8006, {1: 101}]
 hex: 84 01 18 64 19 8006 A1 01 18 65                      (11 bytes)
 
-[2, 100, 0x8006, {1: -32603, 2: "error interno"}]
-hex: 84 02 18 64 19 8006 A2 01 39 7F5A 02 6D 6572726F7220696E7465726E6F   (27 bytes)
+[2, 100, 0x8006, {1: -32603, 2: "error interno", 3: 101}]
+hex: 84 02 18 64 19 8006 A3 01 39 7F5A 02 6D 6572726F7220696E7465726E6F
+     03 18 65                                              (30 bytes)
 ```
 
 ## 8. Códigos de error
