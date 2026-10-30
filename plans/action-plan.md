@@ -28,6 +28,7 @@ Aplicación de escritorio en Python que:
 | 2026-10-28 | Empaquetado Windows: **PyInstaller (onefile/onedir)** | Estándar para apps Qt | 📝 Propuesta |
 | 2026-10-29 | Protocolo de comandos: **JSON-RPC 2.0 (subconjunto)** + telemetría JSON existente | Estandarizado, bidireccional, correlacionado por `id`, retrocompatible con el ACK por `seq` | ✅ Aprobada por el usuario |
 | 2026-10-29 | Transferencia de archivos: **frames binarios nativos** (control por JSON, datos crudos, CRC32, reanudable) | Sin overhead de codificación, RAM constante en el ESP32, convivencia con telemetría vía `transfer` id | ✅ Aprobada por el usuario |
+| 2026-10-30 | Protocolo v2 (propuesta): **CBOR canónico** para comandos y telemetría nueva | Binario auto-descripto (RFC 8949), ~4-8× más chico que JSON, librerías probadas en ESP32; convive con v1 | 📝 Propuesta — [docs/user/protocol-cbor.md](../docs/user/protocol-cbor.md) |
 
 ## 3. Roadmap por fases
 
@@ -156,6 +157,19 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
   - Test nuevo de alta tasa (1500 mensajes de una vez: lista acotada a 1000, contador exacto, buffer vacío tras `flush_now`) → **41 passed**, ruff/mypy en verde.
 - **Rama:** `feature/perf-render-lote` (desde `develop`).
 - **Pendiente:** Validación del usuario con el flujo real del ESP32 (~100 msg/s sostenidos).
+
+### 2026-10-30 — Sesión 8: Propuesta de protocolo binario CBOR (v2)
+- **Objetivo (pedido del usuario):** proponer un protocolo con formato CBOR, definir el formato de la IMU y ejemplos de otros comandos (los del chat) con calidad de guía de implementación.
+- **Análisis previo:** comparados binario propio a medida vs CBOR vs MessagePack vs Protobuf vs FlatBuffers. Elegido **CBOR**: binario auto-descripto (RFC 8949), 4-8× más chico que JSON, librerías probadas (cbor2 en Python; TinyCBOR/QCBOR en ESP32), sin codegen. El ahorro real principal es CPU/RAM en el ESP32 (sin parseo JSON), más que ancho de banda en LAN.
+- **Resultado:** creado [docs/user/protocol-cbor.md](../docs/user/protocol-cbor.md) **v2.0-draft**:
+  - Perfil CBOR canónico (longitudes definidas, ints mínimos, claves ordenadas, sin tags) — ejemplos **hex normativos** byte a byte para tests golden.
+  - Envelope `[tipo, cid, cmd, payload]` (4 tipos), registro de códigos por dominio, convención de claves enteras y unidades.
+  - Especificaciones completas con hex: `get_info`, `ping`, `set/get_hora`, `set/get_uwb`, `sd_list`, `file_pull/push/cancel/ack`, ejemplo de error.
+  - **Telemetría IMU** definida en detalle: `imu` (muestra individual: t_ms + accel en milig i16 ×3 + gyro en 0.1 dps i16 ×3 = 24 bytes/frame), `imu_batch` (ráfagas de N muestras con t0 + período, 1 frame/s a 100 Hz); más ejemplos `uwb_range`, `bat`, `temp`.
+  - Coexistencia con v1: texto JSON = telemetría existente; binario CBOR = comandos/telemetría nueva; chunks de archivo crudos sin cambio.
+  - Checklist de 8 pasos para agregar comandos CBOR nuevos.
+- **Rama:** `feature/protocolo-cbor` (desde `develop`).
+- **Pendiente:** Aprobación del usuario; luego implementación Fase 5 (codec CBOR en la App + botones de comandos).
 
 ---
 
