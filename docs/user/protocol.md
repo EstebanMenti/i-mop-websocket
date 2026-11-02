@@ -1,7 +1,7 @@
 # Protocolo de comunicación i-mop — App ⇄ ESP32
 
-> **Versión del protocolo:** 1.0 (borrador de referencia)
-> **Fecha:** 2026-10-29 · **Estado:** Definido, pendiente de implementación (Fase 5)
+> **Versión del protocolo:** 1.1 (borrador de referencia)
+> **Fecha:** 2026-11-02 · **Estado:** Comandos definidos, pendientes de implementación (Fase 5); telemetría IMU (§10) en uso
 >
 > **Regla de oro:** todo comando o mecanismo nuevo **debe** ajustarse a este documento.
 > Si no encaja, primero se discute y se actualiza aquí; después se implementa.
@@ -73,14 +73,16 @@ La presencia de `result` indica éxito. `result` es **siempre un objeto** (nunca
 
 - Sin `jsonrpc` ni `id`: no espera respuesta.
 - La clave **raíz** identifica el tipo de dato (misma regla que usan los filtros de la GUI).
-- La App confirma su recepción con el ACK por `seq` ya implementado: `{"ack_seq": 42, "status": "ok"}`.
+- La App confirma su recepción con el ACK por `seq` ya implementado: `{"ack_seq": 42, "status": "ok"}`. Si el mensaje agrupa varias muestras,
+  `seq` es el de la última y la confirmación vale para todas (acumulativa).
+- La telemetría de la IMU (clave raíz `IMU`) tiene su formato propio: ver §10.
 
 ## 4. Asignación de identificadores
 
 | Identificador | Ámbito | Regla |
 |---------------|--------|-------|
 | `id` de request | Por conexión | Contador incremental del emisor, comienza en **1**. La App usa `1, 2, 3, …`; si en el futuro el ESP32 inicia requests hacia la App, usará el rango reservado **≥ 1000000** (evita colisiones) |
-| `seq` de telemetría | Por conexión | Contador uint32 del ESP32, arranca en 1 al conectar; se reinicia en cada reconexión |
+| `seq` de telemetría | Por sesión de la placa (`sid`) | Contador uint32 del ESP32, arranca en 1 al encender la placa y **no** se reinicia al reconectar: tras una reconexión la placa reenvía lo no confirmado con su `seq` original (§10.5). Cada arranque es una sesión nueva, con otro `sid` |
 | `transfer` de archivo | Por conexión | String `"t" + contador` (`"t1"`, `"t2"`…), lo asigna quien inicia la transferencia |
 
 - Un `id` no se reutiliza hasta recibir su respuesta o vencer el timeout (3 s por defecto).
@@ -189,7 +191,107 @@ ESP32 → App (texto):   {"jsonrpc":"2.0","id":21,"result":{"ok":true}}
 - **Reanudación:** `file_pull` acepta `offset` (bytes ya recibidos): `{"path": "...", "offset": 8192}`. El CRC32 anunciado sigue siendo el del archivo **completo**.
 - **Cancelación:** cualquiera de los lados envía `file_cancel {"transfer": "t1"}` → el receptor corta y confirma con `file_end {"status": "cancelled"}`.
 
-## 10. Catálogo de comandos v1
+## 10. Telemetría de la IMU (`IMU`)
+
+> **Formato en uso desde el 2026-11-02: JSON con un vector por sensor** (`"fmt": 2`). Se eligió entre tres formatos medidos en placa con los 8 nodos
+> BLE activos (JSON con claves largas, JSON vector y CBOR); la comparación y los motivos están en el repositorio del firmware,
+> `i-mop-esp32/docs/TELEMETRIA_EFICIENCIA.md` (§9 y §10).
+
+La placa envía las muestras de la IMU (100 por segundo) como **notifications de texto** (§3.4) con la clave raíz `IMU`. Cada mensaje agrupa varias
+muestras consecutivas y la App lo confirma con el ACK por `seq`.
+
+### 10.1 Mensaje
+
+Ejemplo con 2 muestras (el mismo que verifican las pruebas del firmware, byte a byte):
+
+```json
+{"IMU":[{"a":[0.01,-0.12,9.81],"l":[0.01,-0.12,0.03],"g":[0.5,-0.2,0.1],"m":[22.1,5,-42.3],"q":[0.001,-0.002,0,1],"s":7,"t":70000,"v":31},{"a":[0.01,-0.12,9.81],"l":[0.01,-0.12,0.03],"g":[0.5,-0.2,0.1],"m":[22.1,5,-42.3],"q":[0.001,-0.002,0,1],"s":8,"t":80000,"v":31}],"seq":8,"n":2,"sid":77,"fmt":2}
+```
+
+Confirmación de la App:
+
+```json
+{"ack_seq": 8, "status": "ok"}
+```
+
+### 10.2 Campos de cada muestra (elementos del arreglo `IMU`)
+
+| Clave | Tipo | Contenido | Unidad |
+|-------|------|-----------|--------|
+| `a` | array de 3 números | Acelerómetro con gravedad `[x, y, z]` | m/s² |
+| `l` | array de 3 números | Aceleración lineal, sin gravedad `[x, y, z]` | m/s² |
+| `g` | array de 3 números | Giroscopio `[x, y, z]` | rad/s |
+| `m` | array de 3 números | Magnetómetro `[x, y, z]` | µT |
+| `q` | array de 4 números | Cuaternión de rotación `[x, y, z, w]` (i, j, k, parte real) | adimensional |
+| `s` | entero uint32 | Número de secuencia de la muestra (§10.5) | — |
+| `t` | entero int64 | Instante de la medición desde el arranque de la placa (no es hora de pared) | µs |
+| `v` | entero | Máscara de sensores recibidos: bit 0 acelerómetro, bit 1 giroscopio, bit 2 magnetómetro, bit 3 aceleración lineal, bit 4 rotación (`31` = los cinco) | — |
+
+### 10.3 Campos del sobre
+
+| Clave | Tipo | Regla |
+|-------|------|-------|
+| `IMU` | array | **Primera clave** del objeto (es la clave raíz que identifica el mensaje y la que usan los filtros). Muestras en orden de `s`, consecutivas, sin saltos dentro del mensaje. Siempre es un arreglo, aunque traiga una sola muestra |
+| `seq` | entero uint32 | El `s` de la **última** muestra del arreglo. Es lo que la App confirma (§10.5) |
+| `n` | entero | Cantidad de muestras del arreglo |
+| `sid` | entero uint32, distinto de 0 | Sesión: valor aleatorio que la placa elige en cada arranque (§10.5) |
+| `fmt` | entero | `2` = formato con un vector por sensor. Si falta, el mensaje usa el formato de claves largas (§10.7) |
+
+### 10.4 Reglas de los valores
+
+- Números JSON con punto decimal, redondeados a **3 decimales** y sin ceros finales (`5` y `9.81` son válidos): la App debe aceptar enteros
+  donde espera números.
+- Nunca viajan `NaN` ni infinito: la placa los envía como `0`. Los valores mayores que 1 000 000 en valor absoluto se saturan.
+- Las 16 componentes están siempre. Un sensor que nunca se recibió va con su valor por defecto (`0`, y `1` para la parte real del cuaternión);
+  su bit en `v` está en 0.
+- Tamaño: unos **172 bytes por muestra**. Con la configuración por defecto de la placa (25 muestras por mensaje) un mensaje mide unos 4,3 KB.
+- Ritmo: a 100 Hz la placa envía una ráfaga por segundo de **4 mensajes de 25 muestras** (unos 17 KB/s). El último mensaje de una ráfaga puede
+  traer menos muestras (`n` lo dice). Las muestras por mensaje son configurables en la placa (1 a 50).
+
+### 10.5 Secuencia, confirmación y reenvío (lo que implementa la App)
+
+1. **`s` es por sesión de la placa:** empieza en 1 al encenderla y crece de a uno; **no** se reinicia al reconectar el WebSocket. Un `sid` nuevo indica
+   que la placa se reinició: la secuencia vuelve a 1.
+2. **Confirmar después de procesar:** la App responde `{"ack_seq": <seq del sobre>, "status": "ok"}`, o `"error"` si no pudo procesarlo (la placa lo
+   cuenta y lo da igual por confirmado: reenviar el mismo mensaje no lo arreglaría). Un mensaje sin `seq` entero no se confirma.
+3. **La confirmación es acumulativa:** `ack_seq` = N confirma todas las muestras de la sesión con `s` ≤ N. La placa guarda en su memoria (128 KB, unas
+   1489 muestras) todo lo no confirmado y lo borra al recibir la confirmación.
+4. **Reenvío:** si la conexión se corta, o si pasan 5 s sin confirmaciones con datos enviados, la placa reconecta y **vuelve a enviar todo lo no
+   confirmado**, desde la muestra más antigua. Por eso pueden llegar muestras repetidas: la App debe **confirmarlas igual** (si no, la placa las reenvía
+   para siempre) y **descartar** las que tengan `s` menor o igual que la mayor ya procesada para ese `sid`.
+5. **Huecos:** un `s` mayor que el esperado es una pérdida real (la memoria de la placa se llenó durante un corte largo). La App debe registrarla.
+
+Estado de la App al 2026-11-02: confirma por el `seq` del primer nivel (puntos 2 y 3) y filtra por la clave raíz `IMU`, así que **el formato funciona sin
+cambios**. Falta el descarte de repetidos del punto 4.
+
+### 10.6 Cómo leer un mensaje
+
+```python
+def muestras_imu(mensaje: dict) -> list[dict]:
+    """Devuelve una fila por muestra de un mensaje IMU con fmt 2."""
+    filas = []
+    for m in mensaje["IMU"]:
+        filas.append({
+            "sid": mensaje["sid"], "seq": m["s"], "t_us": m["t"], "valid": m["v"],
+            "acc_x": m["a"][0], "acc_y": m["a"][1], "acc_z": m["a"][2],
+            "lin_x": m["l"][0], "lin_y": m["l"][1], "lin_z": m["l"][2],
+            "gyr_x": m["g"][0], "gyr_y": m["g"][1], "gyr_z": m["g"][2],
+            "mag_x": m["m"][0], "mag_y": m["m"][1], "mag_z": m["m"][2],
+            "q_x": m["q"][0], "q_y": m["q"][1], "q_z": m["q"][2], "q_w": m["q"][3],
+        })
+    return filas
+```
+
+### 10.7 Otros formatos que la placa puede enviar
+
+La placa elige el formato en su configuración (`WS_TELEMETRY_FORMAT`). El de uso es el de §10.1; los otros quedan para compatibilidad o para más adelante:
+
+| Formato | Cómo se reconoce | Estado |
+|---------|------------------|--------|
+| JSON con claves largas | Sin `fmt`. `"IMU"` es un objeto con 16 claves (`aceleracion_x`, …, `cuaternion_w`) y el sobre trae `seq`, `t_us`, `valid`, `sid`; o un arreglo de esos objetos (cada uno con su `seq`, `t_us`, `valid`) con `seq` de la última y `n` | Formato original; alternativa |
+| CBOR `imu_full_batch` (`0x8006`) | Frame **binario** | Futuro: especificado en [protocol-cbor.md](protocol-cbor.md) §7.6 y §7.7 (rama `feature/protocolo-cbor-imu-completo`) |
+
+## 11. Catálogo de comandos v1
 
 | Método | Dirección | Params (obligatorios) | Params (opcionales) | Devuelve |
 |--------|-----------|----------------------|---------------------|----------|
@@ -207,7 +309,7 @@ ESP32 → App (texto):   {"jsonrpc":"2.0","id":21,"result":{"ok":true}}
 
 Errores típicos por comando: `sd_list`/`file_*` → `-32001` (SD), `-32002` (ruta), `-32004` (ocupado); `set/get_uwb` → `-32005` (UWB no inicializado); `set_hora` → `-32602` (epoch inválido).
 
-### 10.1 Esquemas detallados
+### 11.1 Esquemas detallados
 
 **`set_hora` / `get_hora`**
 
@@ -241,11 +343,11 @@ Errores típicos por comando: `sd_list`/`file_*` → `-32001` (SD), `-32002` (ru
 
 **Seguridad de rutas:** el ESP32 debe rechazar (`-32602`) rutas que contengan `..`, que no empiecen con `/`, o que escapen de la raíz de la SD.
 
-## 11. Cómo agregar un comando nuevo (checklist obligatorio)
+## 12. Cómo agregar un comando nuevo (checklist obligatorio)
 
 1. **Nombre** según §5: `verbo_objeto[_detalle]`, `snake_case`, verbo del conjunto cerrado. Verificar que no exista otro comando que ya lo haga.
-2. **Especificación:** agregar fila a la tabla del §10 con params obligatorios/opcionales y el objeto `result` exacto. Si devuelve un error nuevo de aplicación, agregarlo a §7 (rango `-320xx`).
-3. **Ejemplo:** un par request/response real en §10.1 (los ejemplos son la referencia de los implementadores).
+2. **Especificación:** agregar fila a la tabla del §11 con params obligatorios/opcionales y el objeto `result` exacto. Si devuelve un error nuevo de aplicación, agregarlo a §7 (rango `-320xx`).
+3. **Ejemplo:** un par request/response real en §11.1 (los ejemplos son la referencia de los implementadores).
 4. **Simetría:** si existe el `set_x`, evaluar si hace falta `get_x` (y viceversa) para poder verificar lo configurado.
 5. **Implementación en ambos lados**, garantizando: siempre responder con `id`; validar `params` antes de actuar; jamás responder dos veces.
 6. **GUI:** registrar el comando en el registro de comandos de la app (`~/.imop/config.json`), con su botón y, si tiene params, el mini-esquema de formulario:
@@ -263,17 +365,18 @@ Errores típicos por comando: `sd_list`/`file_*` → `-32001` (SD), `-32002` (ru
 ```
 
 7. **Tests** del lado App (serialización del request, parseo de la respuesta, timeout) y prueba E2E con el ESP32.
-8. **Versión:** cambio aditivo → no se altera `proto`. Documentar en el registro de cambios de este documento (§13).
+8. **Versión:** cambio aditivo → no se altera `proto`. Documentar en el registro de cambios de este documento (§14).
 
-## 12. Reglas de compatibilidad
+## 13. Reglas de compatibilidad
 
 - Los receptores **ignoran** todo campo desconocido (del sobre, de `params` y de `result`).
 - Método desconocido → `-32601`; la conexión **no** se cierra.
 - Queda prohibido: renombrar campos existentes, cambiar el tipo de un campo, o reutilizar un código de error con otro significado. Esos cambios requieren versión mayor del protocolo.
 - Frame binario recibido sin transferencia activa → se descarta silenciosamente y se registra en el log (no es error fatal).
 
-## 13. Registro de cambios del protocolo
+## 14. Registro de cambios del protocolo
 
 | Fecha | Versión | Cambio |
 |-------|---------|--------|
-| 2026-10-29 | 1.0 | Definición inicial: sobre JSON-RPC 2.0, IDs, nomenclatura, errores, handshake, catálogo v1 (§10), transferencia de archivos por canal binario |
+| 2026-10-29 | 1.0 | Definición inicial: sobre JSON-RPC 2.0, IDs, nomenclatura, errores, handshake, catálogo v1 (§11), transferencia de archivos por canal binario |
+| 2026-11-02 | 1.1 | Telemetría de la IMU (§10): formato JSON con un vector por sensor (`fmt` 2), sobre, reglas de valores, confirmación acumulativa, reenvío y descarte de repetidos. Corrección de §4: el `seq` de telemetría es por sesión de la placa (`sid`) y no se reinicia al reconectar. Cambio aditivo: `proto` sigue en 1 |
