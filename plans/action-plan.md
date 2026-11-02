@@ -29,6 +29,7 @@ Aplicación de escritorio en Python que:
 | 2026-10-29 | Protocolo de comandos: **JSON-RPC 2.0 (subconjunto)** + telemetría JSON existente | Estandarizado, bidireccional, correlacionado por `id`, retrocompatible con el ACK por `seq` | ✅ Aprobada por el usuario |
 | 2026-10-29 | Transferencia de archivos: **frames binarios nativos** (control por JSON, datos crudos, CRC32, reanudable) | Sin overhead de codificación, RAM constante en el ESP32, convivencia con telemetría vía `transfer` id | ✅ Aprobada por el usuario |
 | 2026-10-30 | Protocolo v2 (propuesta): **CBOR canónico** para comandos y telemetría nueva | Binario auto-descripto (RFC 8949), ~4-8× más chico que JSON, librerías probadas en ESP32; convive con v1 | 📝 Propuesta — [docs/user/protocol-cbor.md](../docs/user/protocol-cbor.md) |
+| 2026-11-02 | Telemetría IMU: **JSON con un vector por sensor** (`fmt` 2, 25 muestras por mensaje) | Medido en placa con los 8 nodos BLE activos: ≥ 1000 muestras/s de capacidad (≥ 4× la producción) y 0 pérdidas a 100 Hz, con 2,5× menos bytes que el JSON de claves largas; la App lo confirma sin cambios. CBOR `imu_full_batch` queda como formato futuro | ✅ Aprobada por el usuario — [docs/user/protocol.md](../docs/user/protocol.md) §10 |
 
 ## 3. Roadmap por fases
 
@@ -170,6 +171,22 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
   - Checklist de 8 pasos para agregar comandos CBOR nuevos.
 - **Rama:** `feature/protocolo-cbor` (desde `develop`).
 - **Pendiente:** Aprobación del usuario; luego implementación Fase 5 (codec CBOR en la App + botones de comandos).
+
+### 2026-11-02 — Sesión 9: Formato de la telemetría IMU (JSON vector)
+- **Objetivo (pedido del usuario):** dejar especificado en el protocolo el formato de la telemetría IMU elegido después de las mediciones en placa
+  (firmware `i-mop-esp32`, `docs/TELEMETRIA_EFICIENCIA.md`).
+- **Contexto:** con los 8 nodos BLE activos el JSON de claves largas (~424 B por muestra) tenía un margen de envío justo (2,9× la producción). Se
+  midieron tres formatos: JSON de claves largas, JSON con un vector por sensor (~172 B) y CBOR `imu_full_batch` (~34 B, especificado en la rama
+  `feature/protocolo-cbor-imu-completo`, sin integrar). El usuario eligió el **JSON vector**.
+- **Resultado:** [docs/user/protocol.md](../docs/user/protocol.md) **v1.1**:
+  - §10 nuevo: mensaje con ejemplo verificado, campos de la muestra y del sobre, reglas de valores, ritmo y tamaño, confirmación acumulativa,
+    reenvío tras reconexión y descarte de repetidos por `sid` + `s`, código de lectura y los otros formatos de la placa.
+  - §3.4: la confirmación de un mensaje con varias muestras usa el `seq` de la última y es acumulativa.
+  - §4 corregido: el `seq` de telemetría es por sesión de la placa (`sid`) y **no** se reinicia al reconectar (así funciona el firmware).
+  - Secciones 10 a 13 renumeradas a 11 a 14.
+- **Rama:** `feature/protocolo-telemetria-imu` (desde `develop`).
+- **Pendiente:** descartar en el servidor las muestras repetidas tras una reconexión (§10.5, punto 4); probar el formato con la placa contra la App;
+  implementar `0x8006` cuando se adopte CBOR (el ejemplo `set_hora` de `protocol-cbor.md` codifica −180 como `18 B5`; lo correcto es `38 B3`).
 
 ---
 
