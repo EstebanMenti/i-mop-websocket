@@ -166,9 +166,11 @@ La pestaña **"Consola"** envía comandos de **texto plano** al ESP32 por la mis
 ### Paso a paso
 
 1. Iniciar el servidor (pestaña *Telemetría* → *Iniciar servidor*).
-2. Conectar el ESP32 (el selector **Destino** de la consola muestra `ip:puerto` cuando se conecta; con un solo ESP lo selecciona automáticamente).
-3. Ir a la pestaña **Consola**, escribir el comando y presionar **Enter** (o el botón *Enviar*). La app agrega el salto de línea final.
-4. La respuesta del ESP aparece en la salida con timestamp; **↑/↓** recorre el historial de comandos; *Eco local* muestra el comando enviado en verde.
+2. Conectar el ESP32 (el selector **Destino**, en la parte superior de la consola, muestra `ip:puerto` cuando se conecta; con un solo ESP lo selecciona automáticamente; queda deshabilitado si no hay ninguno).
+3. Ir a la pestaña **Consola**: es una terminal de fondo negro donde se escribe **directamente después del cursor** de la última línea (estilo consola de comandos de Windows) y se envía con **Enter**. La app agrega el salto de línea final.
+4. La respuesta del ESP aparece con timestamp sobre la línea de escritura; **↑/↓** recorre el historial de comandos; *Eco local* deja el comando enviado en verde; *Limpiar* borra la terminal (el historial se conserva).
+
+> ℹ️ No hay opción de difusión: los comandos van **siempre dirigidos** al ESP seleccionado en *Destino* (la capa de red conserva `broadcast` para usos futuros, pero la GUI no lo expone).
 
 ### Diagnóstico de la consola
 

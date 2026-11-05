@@ -29,7 +29,6 @@ from imop.gui.panels.message_panel import MessagePanel
 from imop.gui.panels.server_panel import ServerPanel
 from imop.gui.workers import ServerWorker
 from imop.logging_service.handlers import FilterLogManager
-from imop.network.client_registry import BROADCAST_TARGET
 from imop.network.discovery import ServiceAnnouncer, default_instance_name
 
 logger = logging.getLogger(__name__)
@@ -214,16 +213,19 @@ class MainWindow(QMainWindow):
         self.console_panel.set_peers(peers)
 
     def _on_console_send(self, cmd: str, peer: str) -> None:
-        """Envía el comando de la consola al ESP elegido.
+        """Envía el comando de la consola al ESP seleccionado.
 
         Args:
             cmd: Comando en texto plano.
-            peer: Destino (``host:puerto`` o broadcast).
+            peer: Destino ``host:puerto``; vacío si no hay ESP conectado.
         """
         if self._worker is None:
             self.statusBar().showMessage("Consola: el servidor no está iniciado.")
             return
-        self._worker.send_command(cmd, None if peer == BROADCAST_TARGET else peer)
+        if not peer:
+            self.statusBar().showMessage("Consola: no hay ESP32 conectado.")
+            return
+        self._worker.send_command(cmd, peer)
 
     def _on_state_changed(self, status: ServerStatus) -> None:
         """Refleja el estado del servidor en el panel y la barra.

@@ -1,4 +1,4 @@
-"""Tests de la consola remota: enrutamiento del worker y panel de consola.
+"""Tests de la consola remota: enrutamiento del worker y terminal integrada.
 
 El worker se prueba sin arrancar el hilo (``_handle_raw`` se invoca
 directo); el panel se prueba offscreen con QApplication. El test E2E
@@ -51,7 +51,7 @@ def worker(tmp_path: Path) -> ServerWorker:
     return ServerWorker(host="127.0.0.1", port=0, pipeline=pipeline)
 
 
-def collect(worker: object, signal_name: str) -> list[object]:
+def collect(worker: ServerWorker, signal_name: str) -> list[object]:
     """Conecta una señal del worker a una lista y devuelve la lista.
 
     Args:
@@ -96,66 +96,115 @@ def test_send_command_sin_servidor_no_falla(worker: ServerWorker) -> None:
     worker.send_command("server")  # no debe lanzar excepciones
 
 
-def test_panel_consola_historial_y_envio(qapp: QApplication) -> None:
+def _press(term: object, key: object) -> None:
+    """Envía un QKeyEvent de teclado a la terminal.
+
+    Args:
+        term: ConsoleTerminal bajo prueba.
+        key: Tecla Qt a simular.
+    """
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    event = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+    term.keyPressEvent(event)  # type: ignore[attr-defined]
+
+
+def test_terminal_historial_y_envio(qapp: QApplication) -> None:
+    """Escribir + Enter emite el comando; ↑/↓ recorren el historial."""
+    from PySide6.QtCore import Qt
+
     from imop.gui.panels.console_panel import ConsolePanel
 
     panel = ConsolePanel()
     sent: list[tuple[str, str]] = []
     panel.send_requested.connect(lambda cmd, peer: sent.append((cmd, peer)))
 
-    # Enviar con Enter guarda en el historial y emite la señal.
-    panel.input_edit.setText("pass set abc123")
-    panel.input_edit.returnPressed.emit()
-    assert sent == [("pass set abc123", "Todos (broadcast)")]
-    assert panel.input_edit.text() == ""
+    # Sin clientes conectados el destino queda vacío (sin broadcast).
+    assert panel.current_target() == ""
 
-    # ↑ recupera el último comando; ↓ de nuevo vacía el campo.
-    from PySide6.QtCore import QEvent, Qt
-    from PySide6.QtGui import QKeyEvent
+    # Escribir en la terminal y enviar con Enter.
+    panel.terminal.set_input("pass set abc123")
+    _press(panel.terminal, Qt.Key.Key_Return)
+    assert sent == [("pass set abc123", "")]
+    assert panel.terminal._input_text() == ""
 
-    up = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier)
-    panel.eventFilter(panel.input_edit, up)
-    assert panel.input_edit.text() == "pass set abc123"
-    down = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Down, Qt.KeyboardModifier.NoModifier)
-    panel.eventFilter(panel.input_edit, down)
-    assert panel.input_edit.text() == ""
+    # ↑ recupera el último comando; ↓ de nuevo vacía la línea.
+    _press(panel.terminal, Qt.Key.Key_Up)
+    assert panel.terminal._input_text() == "pass set abc123"
+    _press(panel.terminal, Qt.Key.Key_Down)
+    assert panel.terminal._input_text() == ""
 
-    # Comando vacío no envía nada.
-    panel.input_edit.setText("   ")
-    panel.input_edit.returnPressed.emit()
+    # Línea vacía + Enter no envía nada.
+    _press(panel.terminal, Qt.Key.Key_Return)
     assert len(sent) == 1
 
-    # El eco local quedó pintado en la salida.
-    assert "pass set abc123" in panel.output.toPlainText()
+    # El eco local quedó en la salida (comando en verde).
+    assert "pass set abc123" in panel.terminal.toPlainText()
 
 
-def test_panel_consola_selector_de_destino(qapp: QApplication) -> None:
+def test_terminal_sin_eco_borra_la_linea(qapp: QApplication) -> None:
+    """Con eco desactivado, el comando no queda en la salida."""
+    from PySide6.QtCore import Qt
+
     from imop.gui.panels.console_panel import ConsolePanel
 
     panel = ConsolePanel()
-    assert panel.current_target() == "Todos (broadcast)"
+    panel.echo_check.setChecked(False)
+    sent: list[tuple[str, str]] = []
+    panel.send_requested.connect(lambda cmd, peer: sent.append((cmd, peer)))
+
+    panel.terminal.set_input("server")
+    _press(panel.terminal, Qt.Key.Key_Return)
+    assert sent == [("server", "")]
+    assert "server" not in panel.terminal.toPlainText()
+
+
+def test_panel_selector_de_destino_sin_broadcast(qapp: QApplication) -> None:
+    """El combo solo lista peers; sin clientes queda deshabilitado."""
+    from imop.gui.panels.console_panel import ConsolePanel
+
+    panel = ConsolePanel()
+    assert panel.current_target() == ""
+    assert not panel.target_combo.isEnabled()
 
     # Con un peer conectado, el combo lo selecciona por defecto.
     panel.set_peers(["192.168.0.42:4511"])
+    assert panel.target_combo.isEnabled()
     assert panel.current_target() == "192.168.0.42:4511"
 
-    # Si ese peer se desconecta, vuelve al primero disponible (o broadcast).
+    # Si ese peer se desconecta, queda el primero disponible.
     panel.set_peers(["192.168.0.42:4511", "192.168.0.42:4512"])
     assert panel.current_target() == "192.168.0.42:4511"
     panel.set_peers([])
-    assert panel.current_target() == "Todos (broadcast)"
+    assert panel.current_target() == ""
+    assert not panel.target_combo.isEnabled()
+    # Nunca aparece la opción de broadcast.
+    for i in range(panel.target_combo.count()):
+        assert "broadcast" not in panel.target_combo.itemText(i).lower()
 
 
-def test_panel_consola_salida_y_limpiar(qapp: QApplication) -> None:
+def test_panel_salida_y_limpiar(qapp: QApplication) -> None:
     from imop.gui.panels.console_panel import ConsolePanel
 
     panel = ConsolePanel()
     panel.append_output("OK")
     panel.append_output("ERROR: pass vacío\n")
-    assert "OK" in panel.output.toPlainText()
-    assert "ERROR: pass vacío" in panel.output.toPlainText()
+    assert "OK" in panel.terminal.toPlainText()
+    assert "ERROR: pass vacío" in panel.terminal.toPlainText()
     panel.clear_output()
-    assert panel.output.toPlainText() == ""
+    assert "OK" not in panel.terminal.toPlainText()
+    # Tras limpiar queda una línea de prompt lista para escribir.
+    assert panel.terminal._prompt_pos > 0
+
+
+def test_terminal_fondo_negro(qapp: QApplication) -> None:
+    """La terminal usa fondo negro (requisito visual de la consola)."""
+    from imop.gui.panels.console_panel import TERMINAL_STYLESHEET, ConsoleTerminal
+
+    term = ConsoleTerminal()
+    assert "#000000" in TERMINAL_STYLESHEET
+    assert "#000000" in term.styleSheet()
 
 
 async def test_e2e_worker_comando_y_respuesta(qapp: QApplication, tmp_path: Path) -> None:
@@ -165,6 +214,8 @@ async def test_e2e_worker_comando_y_respuesta(qapp: QApplication, tmp_path: Path
     eco que actúa como ESP32 → el comando llega con ``\\n`` y la respuesta
     de texto plano sale por ``console_output``.
     """
+    from PySide6.QtWidgets import QApplication
+
     from imop.core.pipeline import MessagePipeline
     from imop.logging_service.handlers import FilterLogManager
 
@@ -172,8 +223,6 @@ async def test_e2e_worker_comando_y_respuesta(qapp: QApplication, tmp_path: Path
         rules=[],
         log_manager=FilterLogManager(log_dir=tmp_path),  # type: ignore[arg-type]
     )
-    from PySide6.QtWidgets import QApplication
-
     worker = ServerWorker(host="127.0.0.1", port=0, pipeline=pipeline)
     console: list[str] = []
     worker.console_output.connect(console.append)
@@ -192,7 +241,7 @@ async def test_e2e_worker_comando_y_respuesta(qapp: QApplication, tmp_path: Path
         uri = f"ws://127.0.0.1:{worker.bound_port}"
         async with connect(uri) as esp:
             # El comando sale del hilo Qt (thread-safe) y llega con \n final.
-            worker.send_command("pass get", peer=None)
+            worker.send_command("pass get", peer=None)  # difusión (capa de red)
             assert await asyncio.wait_for(esp.recv(), timeout=2.0) == "pass get\n"
             # El "ESP" responde texto plano → consola.
             await esp.send("OK miclave123")

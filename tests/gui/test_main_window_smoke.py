@@ -107,9 +107,9 @@ def test_ventana_tiene_pestana_consola(qapp: object, tmp_path: object) -> None:
     assert window.server_panel.clients_label.text() == "1"
     assert window.console_panel.current_target() == "192.168.0.42:4511"
 
-    # La salida de consola del worker llega al panel.
+    # La salida de consola del worker llega a la terminal integrada.
     window._on_console_output("OK")
-    assert "OK" in window.console_panel.output.toPlainText()
+    assert "OK" in window.console_panel.terminal.toPlainText()
 
     # Enviar con el servidor detenido no lanza errores (solo avisa en la barra).
     window._on_console_send("server", "192.168.0.42:4511")

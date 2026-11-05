@@ -227,6 +227,17 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
 - **Commits:** `feat(network)`, `feat(gui)` + `docs` de la sesión, sobre `feature/consola-ssh`.
 - **Pendiente:** prueba manual del usuario con un ESP32 real (CLI `server` / `pass set` / `pass get`); capturas de la pestaña Consola para el manual; TLS/autenticación como escalamiento futuro.
 
+### 2026-11-05 — Sesión 12: Rediseño visual de la consola (pedido del usuario)
+- **Objetivo:** ajustar la pestaña Consola: fondo negro, "Destino" en la parte superior, eliminar la etiqueta `esp32>` y escribir con cursor integrado en la misma consola (estilo CMD de Windows), sin la opción "Todos (broadcast)".
+- **Resultado:**
+  - [`gui/panels/console_panel.py`](../src/imop/gui/panels/console_panel.py): nueva clase `ConsoleTerminal` (QPlainTextEdit editable solo después del último prompt `"> "`; Enter envía, ↑/↓ historial, Home/Backspace/clic respetan la zona de solo lectura), hoja de estilos con **fondo negro** y texto claro; fila superior con **Destino** + eco local + Limpiar; sin opción de broadcast (combo solo con peers, deshabilitado si no hay ninguno; el eco apagado borra el comando tipeado).
+  - [`gui/main_window.py`](../src/imop/gui/main_window.py): `_on_console_send` exige un peer (estado "no hay ESP32 conectado" si no).
+  - La capa de red conserva `broadcast` (capacidad de `ClientRegistry`/`send_console_line`), solo la GUI dejó de exponerlo.
+  - Tests actualizados (terminal integrada, sin broadcast, fondo negro, sin eco borra línea) → **57 passed**, ruff ✓, mypy ✓.
+  - [docs/user/faq.md](../docs/user/faq.md): paso a paso actualizado a la nueva consola.
+- **Rama:** `feature/consola-ssh` (continuación).
+- **Pendiente:** verificación visual del usuario; capturas para el manual.
+
 ---
 
 ## 5. Convenciones transversales
