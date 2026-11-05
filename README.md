@@ -11,7 +11,7 @@ Monitor y consola bidireccional WebSocket con visualizador de mensajes JSON en t
 - 🎨 **Visualizador en tiempo real** con colores por tipo de mensaje, timestamps y auto-scroll.
 - 🔍 **5 filtros por prefijo**: los JSON cuyo campo identificador comienza con un filtro se derivan a **archivos de log dedicados** (opcional) y se filtran en el panel inferior (sin filtros → se muestran todos).
 - 💾 **Guardado de logs** con rotación, activable desde la GUI.
-- ⌨️ *(Roadmap)* Teclas/botones configurables para **enviar datos** al ESP32.
+- ⌨️ **Consola remota** (pestaña nueva): comandos de **texto plano** al ESP32 (estilo SSH sin seguridad) con respuestas en vivo, historial de comandos (↑/↓), selector de destino y difusión.
 - 📦 Empaquetado como `.exe` en Windows; también funciona en Linux y macOS.
 
 ## Capturas

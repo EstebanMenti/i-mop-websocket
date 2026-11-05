@@ -158,3 +158,25 @@ void setup() {
 | Funciona por IP pero no por mDNS | `ping DESKTOP-XXX.local` desde otro PC | Problema de mDNS en la red: usar IP directa como fallback |
 
 > ℹ️ El anuncio es **opcional y no bloqueante**: si mDNS falla (permisos, red corporativa, etc.), se registra en el log y el servidor sigue funcionando normalmente por conexión directa a la IP.
+
+## ¿Cómo uso la consola para enviar comandos al ESP32?
+
+La pestaña **"Consola"** envía comandos de **texto plano** al ESP32 por la misma conexión WebSocket que ya usa para la telemetría (no hay que configurar nada nuevo).
+
+### Paso a paso
+
+1. Iniciar el servidor (pestaña *Telemetría* → *Iniciar servidor*).
+2. Conectar el ESP32 (el selector **Destino** de la consola muestra `ip:puerto` cuando se conecta; con un solo ESP lo selecciona automáticamente).
+3. Ir a la pestaña **Consola**, escribir el comando y presionar **Enter** (o el botón *Enviar*). La app agrega el salto de línea final.
+4. La respuesta del ESP aparece en la salida con timestamp; **↑/↓** recorre el historial de comandos; *Eco local* muestra el comando enviado en verde.
+
+### Diagnóstico de la consola
+
+| Síntoma | Causa probable | Solución |
+|---------|----------------|----------|
+| No puedo escribir / nada se envía | El servidor no está iniciado | Iniciar el servidor en la pestaña *Telemetría* (la barra de estado avisa) |
+| El comando se envía pero no responde | El firmware del ESP no implementa el intérprete de texto | Implementar el CLI según [protocol.md](protocol.md) §15.5 |
+| La respuesta aparece en *Telemetría* y no en *Consola* | El ESP respondió con JSON válido | El firmware debe responder **texto plano** (regla §15.3) |
+| El ESP está conectado pero no aparece en *Destino* | La conexión se cayó o aún no se registró | Verificar el contador *Clientes* del panel del servidor |
+
+> ⚠️ **Sin seguridad (por ahora):** no hay TLS ni autenticación; cualquier equipo de la red puede conectarse y enviar comandos. Usar solo en redes confiables.

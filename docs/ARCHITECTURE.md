@@ -165,7 +165,7 @@ en la misma conexión después de procesarlo:
 | `{"seq": 7, "sensor_temp": {"value": 23.4}}` | `{"ack_seq": 7, "status": "ok"}` |
 | `{"seq": 8, ...}` con fallo interno del callback | `{"ack_seq": 8, "status": "error"}` |
 | Mensaje sin `seq`, o con `seq` no entero | *(sin respuesta — retrocompatible)* |
-| Frame no parseable como JSON | *(sin respuesta — se muestra como ERROR en la GUI)* |
+| Frame no parseable como JSON (texto plano) | *(sin respuesta — va a la consola remota, §4.3)* |
 
 Implementación: [`network/server.py`](../src/imop/network/server.py) (`_extract_seq` / `_send_ack`).
 El ESP32 puede usar el `status` del ACK para retransmitir mensajes perdidos.
@@ -209,6 +209,43 @@ Implementación: [`network/discovery.py`](../src/imop/network/discovery.py)
 > en el firewall. Si falla, es solo un error logueado: el anuncio es opcional y el
 > servidor funciona igual sin él (conexión directa por IP siempre disponible).
 
+### 4.3 Consola remota bidireccional (texto plano)
+
+La app incorpora una pestaña **"Consola"**: comandos de texto plano estilo CLI
+(`server`, `pass set <password>`, `pass get`...) que viajan por la **misma conexión**
+y puerto ya existentes, con la respuesta del ESP32 impresa verbatim.
+
+```mermaid
+sequenceDiagram
+    participant UI as ConsolePanel (Consola)
+    participant QT as ServerWorker
+    participant WS as WebSocketServer
+    participant ESP as ESP32
+
+    UI->>QT: send_command("pass get", peer)  [run_coroutine_threadsafe]
+    QT->>WS: send_console_line("pass get\\n")
+    WS->>ESP: frame de texto (comando + \\n)
+    ESP-->>WS: frame de texto (respuesta, texto plano)
+    WS->>QT: on_message(raw)
+    QT->>QT: parse_message falla → no es JSON
+    QT->>UI: signal console_output(raw)
+    UI->>UI: imprime verbatim con timestamp
+```
+
+- **Enrutamiento por tipo de frame** en [`gui/workers.py`](../src/imop/gui/workers.py)
+  (`_handle_raw`): JSON válido → pipeline de telemetría (§4, sin cambios); cualquier
+  otro texto → consola. Convención: el CLI del ESP responde **solo texto plano**
+  ([docs/user/protocol.md](user/protocol.md) §15).
+- **Envío thread-safe:** `ServerWorker.send_command()` publica en el loop asyncio del
+  hilo worker con `asyncio.run_coroutine_threadsafe`; la GUI nunca bloquea esperando
+  la respuesta.
+- **Destino:** [`network/client_registry.py`](../src/imop/network/client_registry.py) expone
+  `peers()`, `resolve()` y `send_to()`; la consola elige un cliente puntual o difunde a
+  todos (`WebSocketServer.send_console_line`, que agrega el `\n` final).
+- **Panel:** [`gui/panels/console_panel.py`](../src/imop/gui/panels/console_panel.py)
+  (salida con `QPlainTextEdit`, tope de 5000 líneas, historial ↑/↓, selector de destino,
+  eco local configurable).
+
 ## 5. Configuración persistente
 
 - Ubicación: perfil de usuario (portable-friendly) — `QSettings("imop", "i-mop-websocket")` o `~/.imop/config.json`.
@@ -226,6 +263,7 @@ Implementación: [`network/discovery.py`](../src/imop/network/discovery.py)
 
 ## 7. Extensibilidad futura (envío de teclas)
 
-- `ClientRegistry` ya contempla múltiples clientes: el panel de teclas futuras solo necesita `registry.send_all(json)`.
+- `ClientRegistry` ya contempla múltiples clientes: el panel de teclas futuras solo necesita `registry.broadcast(json)` (o `send_to()` ya implementados para la consola).
 - Los atajos se definirán en configuración como pares *(tecla → JSON)*, renderizados como botones configurables (generados desde el registro de comandos).
 - **Protocolo definido:** comandos por JSON-RPC 2.0 (subconjunto) y archivos por frames binarios → ver [docs/user/protocol.md](user/protocol.md) (v1.0). Toda extensión debe seguir sus reglas.
+- **Consola remota: implementada** (§4.3) sobre `send_to()`/`broadcast()`; TLS/autenticación queda como escalamiento ([docs/user/protocol.md](user/protocol.md) §15.4).

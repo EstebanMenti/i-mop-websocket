@@ -14,7 +14,7 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QFont, QKeyEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -130,7 +130,7 @@ class ConsolePanel(QWidget):
         if len(self._history) > 100:
             self._history.pop(0)
 
-    def eventFilter(self, obj: object, event: object) -> bool:  # noqa: N802 (API Qt)
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802 (API Qt)
         """Intercepta ↑/↓ en el campo de entrada para navegar el historial.
 
         Args:
@@ -148,7 +148,7 @@ class ConsolePanel(QWidget):
             if key_event.key() == Qt.Key.Key_Down:
                 self._history_step(1)
                 return True
-        return super().eventFilter(obj, event)  # type: ignore[arg-type]
+        return super().eventFilter(obj, event)
 
     def _history_step(self, delta: int) -> None:
         """Navega el historial con ↑/↓ sin salirse de los extremos.

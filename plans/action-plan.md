@@ -30,7 +30,7 @@ Aplicación de escritorio en Python que:
 | 2026-10-29 | Transferencia de archivos: **frames binarios nativos** (control por JSON, datos crudos, CRC32, reanudable) | Sin overhead de codificación, RAM constante en el ESP32, convivencia con telemetría vía `transfer` id | ✅ Aprobada por el usuario |
 | 2026-10-30 | Protocolo v2 (propuesta): **CBOR canónico** para comandos y telemetría nueva | Binario auto-descripto (RFC 8949), ~4-8× más chico que JSON, librerías probadas en ESP32; convive con v1 | 📝 Propuesta — [docs/user/protocol-cbor.md](../docs/user/protocol-cbor.md) |
 | 2026-11-02 | Telemetría IMU: **JSON con un vector por sensor** (`fmt` 2, 25 muestras por mensaje) | Medido en placa con los 8 nodos BLE activos: ≥ 1000 muestras/s de capacidad (≥ 4× la producción) y 0 pérdidas a 100 Hz, con 2,5× menos bytes que el JSON de claves largas; la App lo confirma sin cambios. CBOR `imu_full_batch` queda como formato futuro | ✅ Aprobada por el usuario — [docs/user/protocol.md](../docs/user/protocol.md) §10 |
-| 2026-11-05 | Consola remota estilo SSH sobre WebSocket: **comandos y respuestas en texto plano** (sin envoltorio JSON; el intérprete del ESP es CLI estilo `server`, `pass set <password>`, `pass get`) sobre la misma conexión y puerto existente, sin seguridad (TLS/auth) por ahora, pestaña "Consola" nueva en la GUI | El intérprete del ESP ya habla texto; JSON agregaría parseo innecesario. Enrutamiento simple: frame JSON → telemetría (pipeline actual), frame texto plano → consola. Plan detallado en [plans/consola-ssh-plan.md](consola-ssh-plan.md) | 📝 Propuesta |
+| 2026-11-05 | Consola remota estilo SSH sobre WebSocket: **comandos y respuestas en texto plano** (sin envoltorio JSON; el intérprete del ESP es CLI estilo `server`, `pass set <password>`, `pass get`) sobre la misma conexión y puerto existente, sin seguridad (TLS/auth) por ahora, pestaña "Consola" nueva en la GUI | El intérprete del ESP ya habla texto; JSON agregaría parseo innecesario. Enrutamiento simple: frame JSON → telemetría (pipeline actual), frame texto plano → consola. Plan detallado en [plans/consola-ssh-plan.md](consola-ssh-plan.md) | ✅ Aprobada e implementada — [docs/user/protocol.md](../docs/user/protocol.md) §15 |
 
 ## 3. Roadmap por fases
 
@@ -73,14 +73,14 @@ Aplicación de escritorio en Python que:
 - [ ] Teclas/botones configurables que envían JSON predefinidos.
 - [ ] Documentar protocolo de mensajes bidireccional.
 
-### Fase 5b — Consola remota estilo SSH (pestaña "Consola") ← *PRÓXIMA ENTREGA* — [plans/consola-ssh-plan.md](consola-ssh-plan.md)
-- [ ] Red: `ClientRegistry.send_to()/peers()/resolve()` + `WebSocketServer.send_console_line()` (agrega `\n` al comando) y tests de envío dirigido/broadcast.
-- [ ] Worker: `ServerWorker.send_command()` thread-safe (`run_coroutine_threadsafe`), señal `console_output`, enrutamiento por tipo de frame: JSON → pipeline de telemetría, texto plano → consola.
-- [ ] GUI: `QTabWidget` (Telemetría / Consola) + `ConsolePanel` (salida coloreada, historial ↑/↓, selector de destino, eco local, límite de líneas).
-- [ ] Config: persistir `echo_local` y pestaña activa.
-- [ ] Firmware de referencia del ESP32 (eco + comandos de ejemplo) documentado en [docs/user/protocol.md](../docs/user/protocol.md).
-- [ ] Docs: ARCHITECTURE (flujo bidireccional), FAQ, README, manual de usuario.
-- [ ] QA: ruff + mypy + pytest en verde; registro de la sesión de implementación aquí.
+### Fase 5b — Consola remota estilo SSH (pestaña "Consola") ← *COMPLETADA* — [plans/consola-ssh-plan.md](consola-ssh-plan.md)
+- [x] Red: `ClientRegistry.send_to()/peers()/resolve()/peer_label()` + `WebSocketServer.send_console_line()` (agrega `\n` al comando) y tests de envío dirigido/broadcast/peer desconocido.
+- [x] Worker: `ServerWorker.send_command()` thread-safe (`run_coroutine_threadsafe`), señal `console_output`, enrutamiento por tipo de frame: JSON → pipeline de telemetría, texto plano → consola (test E2E con worker real).
+- [x] GUI: `QTabWidget` (Telemetría / Consola) + `ConsolePanel` (salida coloreada, historial ↑/↓, selector de destino, eco local, límite 5000 líneas).
+- [x] Config: persistir `console_echo` y `last_tab`.
+- [x] Firmware de referencia del ESP32 (CLI `server`/`pass set`/`pass get`) documentado en [docs/user/protocol.md](../docs/user/protocol.md) §15.
+- [x] Docs: ARCHITECTURE §4.3 (flujo bidireccional), FAQ (uso y diagnóstico de la consola), README.
+- [x] QA: ruff + mypy + pytest (57 passed) en verde; registro de la sesión de implementación aquí.
 
 ### Fase 6 — Empaquetado y distribución
 - [ ] Script de build PyInstaller (`.spec`) para Windows (.exe).
@@ -209,6 +209,23 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
   - Fase **5b** agregada al roadmap y decisión registrada en §2 (estado: propuesta).
 - **Rama prevista:** `feature/consola-ssh` (desde `develop`).
 - **Pendiente:** aprobación del usuario del plan; luego implementar según los pasos 0-7.
+
+### 2026-11-05 — Sesión 11: Implementación de la consola remota (Fase 5b)
+- **Objetivo:** implementar el plan aprobado de la sesión 10: consola estilo SSH (texto plano) en una pestaña nueva, sin tocar la telemetría ni el puerto configurable.
+- **Resultado (rama `feature/consola-ssh`):**
+  - [`network/client_registry.py`](../src/imop/network/client_registry.py): `peer_label()`, `peers()`, `resolve()`, `send_to()`; `on_change` ahora entrega la **lista de peers** (`BROADCAST_TARGET` como etiqueta de difusión).
+  - [`network/server.py`](../src/imop/network/server.py): `send_console_line(text, peer)` normaliza el comando (recorta espacios finales, agrega un `\n`), envía dirigido o en broadcast y avisa si el peer no está conectado.
+  - [`gui/workers.py`](../src/imop/gui/workers.py): `send_command()` thread-safe con `run_coroutine_threadsafe`, señal `console_output` y enrutamiento en `_handle_raw` (pre-parseo: JSON → pipeline intacto, texto plano → consola).
+  - [`gui/panels/console_panel.py`](../src/imop/gui/panels/console_panel.py) (nuevo): salida `QPlainTextEdit` (tope 5000 bloques), prompt `esp32>`, historial ↑/↓, selector de destino (persiste selección; default = primer cliente), eco local, "Limpiar".
+  - [`gui/main_window.py`](../src/imop/gui/main_window.py): `QTabWidget` con pestañas **Telemetría** (todo lo previo, sin cambios) y **Consola**; wiring `send_requested` ↔ `send_command` y `console_output` ↔ panel; persiste `console_echo` y `last_tab` ([config.py](../src/imop/config.py)).
+  - Tests nuevos: 6 de red (texto sin ACK, peers/resolve, broadcast con `\n`, dirigido, peer desconocido, lista de peers en `on_clients_changed`), 3 de config y 7 de GUI (enrutamiento del worker, panel con historial/destino/salida, **E2E** con worker real: comando → cliente eco → respuesta → señal de consola). **Total: 57 passed**, ruff ✓, ruff format ✓, mypy ✓.
+  - Docs: [docs/user/protocol.md](../docs/user/protocol.md) **v1.2** (§15 consola remota + sketch Arduino de referencia), [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) §4.3 (diagrama de secuencia del flujo bidireccional), [docs/user/faq.md](../docs/user/faq.md) (paso a paso y diagnóstico) y README.
+- **Correcciones durante la implementación:**
+  - Bug detectado por el test de peer desconocido: `send_console_line` caía en broadcast cuando el peer no existía → ahora devuelve 0 con log WARNING.
+  - El enrutamiento no podía depender de que el pipeline lance `MessageParseError` (el pipeline convierte JSON inválido en mensaje de ERROR): se pre-parsea en el worker.
+  - Las señales Qt entre hilos requieren `processEvents()` en el test E2E (encoladas al hilo principal).
+- **Commits:** `feat(network)`, `feat(gui)` + `docs` de la sesión, sobre `feature/consola-ssh`.
+- **Pendiente:** prueba manual del usuario con un ESP32 real (CLI `server` / `pass set` / `pass get`); capturas de la pestaña Consola para el manual; TLS/autenticación como escalamiento futuro.
 
 ---
 

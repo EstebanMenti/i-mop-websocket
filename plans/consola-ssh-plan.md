@@ -105,14 +105,16 @@ El ejemplo completo (con el CLI de ejemplo `server` / `pass set` / `pass get`) s
 
 ## 5. Plan de implementación (pasos de la entrega)
 
-- [ ] **Paso 0 — Rama:** crear `feature/consola-ssh` desde `develop` (según [GIT_WORKFLOW.md](../docs/GIT_WORKFLOW.md)).
-- [ ] **Paso 1 — Red:** `send_to()`, `peers()`, `resolve()`, `WebSocketServer.send_console_line()` (agrega `\n`) + tests de red (cliente eco real con `websockets` que responde el mismo texto; verificar envío dirigido y broadcast).
-- [ ] **Paso 2 — Worker:** `send_command()`, señal `console_output`, enrutamiento JSON→pipeline / no-JSON→consola, `clients_changed` con lista de peers + tests del worker con loop real.
-- [ ] **Paso 3 — GUI:** `QTabWidget` en `MainWindow` (refactor sin cambios de comportamiento en la pestaña Telemetría) + `ConsolePanel` completo + wiring de señales + smoke test GUI offscreen.
-- [ ] **Paso 4 — Config y persistencia:** `echo_local`, pestaña activa; tests de config.
-- [ ] **Paso 5 — Firmware de referencia:** sketch mínimo del ESP32 (CLI con `server`, `pass set <p>`, `pass get` respondiendo texto plano) documentado en [docs/user/protocol.md](../docs/user/protocol.md) (sección nueva §"Consola remota") y ejemplo en `docs/user/`.
-- [ ] **Paso 6 — Docs:** [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) (flujo bidireccional y enrutamiento por tipo de frame), [docs/user/faq.md](../docs/user/faq.md) (el ESP no responde, la salida aparece en Telemetría, firewall), README y manual de usuario con la pestaña Consola.
-- [ ] **Paso 7 — QA y registro:** `ruff check` + `ruff format` + `mypy` + `pytest` en verde; actualizar [plans/action-plan.md](action-plan.md) (casillas de esta fase, decisión aprobada, entrada de sesión de implementación).
+- [x] **Paso 0 — Rama:** crear `feature/consola-ssh` (según [GIT_WORKFLOW.md](../docs/GIT_WORKFLOW.md)).
+- [x] **Paso 1 — Red:** `send_to()`, `peers()`, `resolve()`, `WebSocketServer.send_console_line()` (agrega `\n`) + tests de red (cliente eco real con `websockets`; envío dirigido, broadcast y peer desconocido).
+- [x] **Paso 2 — Worker:** `send_command()`, señal `console_output`, enrutamiento JSON→pipeline / no-JSON→consola (pre-parseo en el worker), `clients_changed` con lista de peers + tests del worker y **test E2E** con worker real.
+- [x] **Paso 3 — GUI:** `QTabWidget` en `MainWindow` (pestaña Telemetría sin cambios de comportamiento) + `ConsolePanel` completo + wiring de señales + smoke tests GUI offscreen.
+- [x] **Paso 4 — Config y persistencia:** `console_echo`, `last_tab`; tests de config.
+- [x] **Paso 5 — Firmware de referencia:** sketch mínimo del ESP32 (CLI `server` / `pass set <p>` / `pass get`) en [docs/user/protocol.md](../docs/user/protocol.md) §15 (protocolo **v1.2**).
+- [x] **Paso 6 — Docs:** [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) §4.3 (diagrama de flujo bidireccional), [docs/user/faq.md](../docs/user/faq.md) (uso y diagnóstico), README.
+- [x] **Paso 7 — QA y registro:** ruff ✓, ruff format ✓, mypy ✓, pytest **57 passed**; [plans/action-plan.md](action-plan.md) actualizado (fase 5b completada, Sesión 11).
+
+> **Nota de implementación (2026-11-05):** el prompt `esp32> ` se muestra como eco del comando enviado (en verde) y el selector de destino usa `blockSignals` al rellenar el combo para no duplicar señales. Detalles en la [Sesión 11](action-plan.md).
 
 ## 6. Riesgos y mitigaciones
 

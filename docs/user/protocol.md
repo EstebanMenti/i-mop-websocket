@@ -380,3 +380,57 @@ Errores típicos por comando: `sd_list`/`file_*` → `-32001` (SD), `-32002` (ru
 |-------|---------|--------|
 | 2026-10-29 | 1.0 | Definición inicial: sobre JSON-RPC 2.0, IDs, nomenclatura, errores, handshake, catálogo v1 (§11), transferencia de archivos por canal binario |
 | 2026-11-02 | 1.1 | Telemetría de la IMU (§10): formato JSON con un vector por sensor (`fmt` 2), sobre, reglas de valores, confirmación acumulativa, reenvío y descarte de repetidos. Corrección de §4: el `seq` de telemetría es por sesión de la placa (`sid`) y no se reinicia al reconectar. Cambio aditivo: `proto` sigue en 1 |
+| 2026-11-05 | 1.2 | Consola remota (§15): comandos y respuestas en **texto plano** por la misma conexión, sin envoltorio JSON ni ACK por `seq`; la App enruta por tipo de frame (JSON → telemetría, texto → consola). Cambio aditivo: `proto` sigue en 1 |
+
+## 15. Consola remota (texto plano)
+
+> **Regla:** la consola remota es un canal de comandos de **texto plano** estilo CLI (sin JSON, sin ACK): la App envía la línea de comando tal cual y el ESP32 responde con texto que se muestra verbatim en la pestaña "Consola".
+
+### 15.1 Comando (App → ESP32)
+
+- La App envía un **frame de texto WebSocket** con el comando tal como lo escribió el usuario, **sin envoltorio JSON**, y agrega **exactamente un `\n` final** (los intérpretes línea a línea lo esperan).
+- Ejemplos: `server`, `pass set miclave123`, `pass get`.
+
+### 15.2 Respuesta (ESP32 → App)
+
+- Cada respuesta es uno o más **frames de texto plano**; la App los imprime verbatim con timestamp local en la consola.
+- Los `\n` que envíe el ESP se respetan; la salida puede llegar partida en varios frames.
+- No hay marcador de fin de respuesta: la App re-muestra el prompt después de cada frame; la consola **nunca bloquea**.
+- Convención recomendada: responder `OK` (o el resultado) en éxito y `ERROR: <motivo>` en fracaso.
+
+### 15.3 Convivencia con la telemetría (misma conexión)
+
+| Frame entrante | Destino en la App |
+|----------------|-------------------|
+| Texto plano (no-JSON) | Pestaña **Consola** |
+| JSON válido (telemetría §3.4/§10, con o sin `seq`) | Filtros, logs y panel de mensajes (sin cambios) |
+
+- **Regla para el firmware:** el intérprete de la consola responde **solo texto plano**; la telemetría sigue siendo JSON. Así el enrutamiento de la App es inequívoco.
+- Los frames de consola (sin `seq`) **no generan ACK** del servidor (§3.1 sigue igual para telemetría).
+
+### 15.4 Seguridad
+
+- Sin TLS ni autenticación en esta versión: cualquier equipo de la red puede conectarse y enviar comandos. Usar solo en redes confiables; TLS/token queda como escalamiento.
+
+### 15.5 Ejemplo mínimo de firmware (Arduino)
+
+```cpp
+// El handler de texto ya existente trata el frame como línea del CLI.
+void onWebSocketText(WebSocketClient client, String line) {
+  line.trim();                                  // sin \r\n de los frames
+  String out;
+  if (line == "server") {
+    out = "modo: STA, ip: " + WiFi.localIP().toString();
+  } else if (line.startsWith("pass set ")) {
+    savedPassword = line.substring(9);
+    out = "OK";
+  } else if (line == "pass get") {
+    out = savedPassword.isEmpty() ? "ERROR: pass vacía" : savedPassword;
+  } else {
+    out = "ERROR: comando desconocido";
+  }
+  client.send(out);                             // respuesta en texto plano
+}
+```
+
+- Referencia completa de la implementación en la App: [docs/ARCHITECTURE.md](../ARCHITECTURE.md); plan de la funcionalidad en [plans/consola-ssh-plan.md](../../plans/consola-ssh-plan.md).

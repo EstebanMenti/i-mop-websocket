@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from websockets.asyncio.client import connect
@@ -17,31 +19,34 @@ from imop.gui.workers import ServerWorker
 
 pytest.importorskip("PySide6.QtWidgets")
 
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QApplication
+
 pytestmark = pytest.mark.gui
 
 
 @pytest.fixture
-def qapp() -> object:
+def qapp() -> QApplication:
     """Crea (o reutiliza) la QApplication offscreen."""
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication([])
-    yield app
+    yield app  # type: ignore[misc]
 
 
 @pytest.fixture
-def worker(tmp_path: object) -> object:
+def worker(tmp_path: Path) -> ServerWorker:
     """Worker con pipeline real (sin iniciar el hilo del servidor).
 
     Yields:
         ServerWorker listo para recibir frames en ``_handle_raw``.
     """
     from imop.core.pipeline import MessagePipeline
-    from imop.gui.workers import ServerWorker
     from imop.logging_service.handlers import FilterLogManager
 
     pipeline = MessagePipeline(
-        rules=[], log_manager=FilterLogManager(log_dir=tmp_path)  # type: ignore[arg-type]
+        rules=[],
+        log_manager=FilterLogManager(log_dir=tmp_path),  # type: ignore[arg-type]
     )
     return ServerWorker(host="127.0.0.1", port=0, pipeline=pipeline)
 
@@ -61,7 +66,7 @@ def collect(worker: object, signal_name: str) -> list[object]:
     return received
 
 
-def test_frame_texto_plano_va_a_la_consola(worker: object) -> None:
+def test_frame_texto_plano_va_a_la_consola(worker: ServerWorker) -> None:
     console = collect(worker, "console_output")
     telemetry = collect(worker, "message_received")
     worker._handle_raw("modo: STA, ip: 192.168.0.42")
@@ -69,7 +74,7 @@ def test_frame_texto_plano_va_a_la_consola(worker: object) -> None:
     assert telemetry == []
 
 
-def test_frame_json_va_a_telemetria(worker: object, tmp_path: object) -> None:
+def test_frame_json_va_a_telemetria(worker: ServerWorker, tmp_path: Path) -> None:
     console = collect(worker, "console_output")
     telemetry = collect(worker, "message_received")
     raw = json.dumps({"sensor_temp": {"value": 23.4}})
@@ -78,7 +83,7 @@ def test_frame_json_va_a_telemetria(worker: object, tmp_path: object) -> None:
     assert len(telemetry) == 1
 
 
-def test_frame_json_invalido_va_a_la_consola(worker: object) -> None:
+def test_frame_json_invalido_va_a_la_consola(worker: ServerWorker) -> None:
     console = collect(worker, "console_output")
     telemetry = collect(worker, "message_received")
     worker._handle_raw("{esto no es json")
@@ -86,12 +91,12 @@ def test_frame_json_invalido_va_a_la_consola(worker: object) -> None:
     assert telemetry == []
 
 
-def test_send_command_sin_servidor_no_falla(worker: object) -> None:
+def test_send_command_sin_servidor_no_falla(worker: ServerWorker) -> None:
     """Sin loop activo, ``send_command`` descarta el comando sin lanzar."""
     worker.send_command("server")  # no debe lanzar excepciones
 
 
-def test_panel_consola_historial_y_envio(qapp: object) -> None:
+def test_panel_consola_historial_y_envio(qapp: QApplication) -> None:
     from imop.gui.panels.console_panel import ConsolePanel
 
     panel = ConsolePanel()
@@ -124,7 +129,7 @@ def test_panel_consola_historial_y_envio(qapp: object) -> None:
     assert "pass set abc123" in panel.output.toPlainText()
 
 
-def test_panel_consola_selector_de_destino(qapp: object) -> None:
+def test_panel_consola_selector_de_destino(qapp: QApplication) -> None:
     from imop.gui.panels.console_panel import ConsolePanel
 
     panel = ConsolePanel()
@@ -141,7 +146,7 @@ def test_panel_consola_selector_de_destino(qapp: object) -> None:
     assert panel.current_target() == "Todos (broadcast)"
 
 
-def test_panel_consola_salida_y_limpiar(qapp: object) -> None:
+def test_panel_consola_salida_y_limpiar(qapp: QApplication) -> None:
     from imop.gui.panels.console_panel import ConsolePanel
 
     panel = ConsolePanel()
@@ -153,7 +158,7 @@ def test_panel_consola_salida_y_limpiar(qapp: object) -> None:
     assert panel.output.toPlainText() == ""
 
 
-async def test_e2e_worker_comando_y_respuesta(qapp: object, tmp_path: object) -> None:
+async def test_e2e_worker_comando_y_respuesta(qapp: QApplication, tmp_path: Path) -> None:
     """Envía un comando desde el hilo Qt y recibe la respuesta del "ESP".
 
     Flujo completo: worker (QThread + asyncio) con servidor real → cliente
@@ -164,7 +169,8 @@ async def test_e2e_worker_comando_y_respuesta(qapp: object, tmp_path: object) ->
     from imop.logging_service.handlers import FilterLogManager
 
     pipeline = MessagePipeline(
-        rules=[], log_manager=FilterLogManager(log_dir=tmp_path)  # type: ignore[arg-type]
+        rules=[],
+        log_manager=FilterLogManager(log_dir=tmp_path),  # type: ignore[arg-type]
     )
     from PySide6.QtWidgets import QApplication
 

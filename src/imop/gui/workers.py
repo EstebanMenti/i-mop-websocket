@@ -107,9 +107,7 @@ class ServerWorker(QThread):
         if self._loop is None or not self._loop.is_running() or self._server is None:
             logger.warning("Servidor no activo; comando de consola descartado")
             return
-        asyncio.run_coroutine_threadsafe(
-            self._server.send_console_line(cmd, peer), self._loop
-        )
+        asyncio.run_coroutine_threadsafe(self._server.send_console_line(cmd, peer), self._loop)
 
     def _handle_raw(self, raw: str) -> None:
         """Callback del servidor: enruta el frame según su tipo.
