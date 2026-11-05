@@ -201,11 +201,17 @@ class ConsoleTerminal(QPlainTextEdit):
     def _append_prompt(self, input_text: str) -> None:
         """Agrega una línea de prompt (con el texto de entrada indicado).
 
+        El prompt siempre inicia en una línea nueva (salvo al inicio del
+        documento), para que la salida del ESP quede separada del próximo
+        comando.
+
         Args:
             input_text: Texto del usuario a restaurar después del prompt.
         """
         cursor = self.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
+        if cursor.position() > 0:
+            cursor.insertBlock()
         cursor.insertHtml(f'<span style="color:{SENT_COLOR}; font-weight:bold">{PROMPT}</span>')
         if input_text:
             cursor.insertHtml(html.escape(input_text))

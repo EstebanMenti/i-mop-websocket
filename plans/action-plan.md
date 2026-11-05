@@ -236,7 +236,13 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
   - Tests actualizados (terminal integrada, sin broadcast, fondo negro, sin eco borra línea) → **57 passed**, ruff ✓, mypy ✓.
   - [docs/user/faq.md](../docs/user/faq.md): paso a paso actualizado a la nueva consola.
 - **Rama:** `feature/consola-ssh` (continuación).
-- **Pendiente:** verificación visual del usuario; capturas para el manual.
+- **Pendiente:** capturas para el manual.
+
+### 2026-11-05 — Sesión 13: Prompt en línea nueva tras cada respuesta del ESP
+- **Objetivo (feedback del usuario tras verificación visual):** después de una respuesta del ESP32, el prompt `"> "` quedaba pegado al final de la respuesta en la misma línea; debe iniciar en una línea nueva, como en una consola CMD.
+- **Resultado:** [`gui/panels/console_panel.py`](../src/imop/gui/panels/console_panel.py): `_append_prompt()` ahora inserta un bloque nuevo (`cursor.insertBlock()`) antes del prompt, salvo al inicio del documento. El flujo queda `respuesta` → línea nueva → `> `, y también separa el eco del comando enviado del próximo prompt.
+- **Verificación:** tests de GUI en verde (14 passed).
+- **Rama:** `feature/consola-ssh` (continuación).
 
 ---
 
