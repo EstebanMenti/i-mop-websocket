@@ -1,7 +1,7 @@
 """Registro de clientes WebSocket conectados.
 
-Base para la comunicación bidireccional futura (envío de teclas/datos
-al ESP32 desde la GUI).
+Base para la comunicación bidireccional (consola de comandos hacia el
+ESP32 desde la GUI): envío dirigido, difusión y listado de peers.
 """
 
 from __future__ import annotations
@@ -16,16 +16,19 @@ from websockets.exceptions import ConnectionClosed
 
 logger = logging.getLogger(__name__)
 
+#: Etiqueta que representa "todos los clientes" en el selector de destino.
+BROADCAST_TARGET = "Todos (broadcast)"
+
 
 class ClientRegistry:
-    """Trackea las conexiones activas y permite difundir mensajes."""
+    """Trackea las conexiones activas y permite enviarles mensajes."""
 
-    def __init__(self, on_change: Callable[[int], None] | None = None) -> None:
+    def __init__(self, on_change: Callable[[list[str]], None] | None = None) -> None:
         """Inicializa el registro.
 
         Args:
-            on_change: Callback (opcional) invocado con la cantidad de
-                clientes cada vez que cambia.
+            on_change: Callback (opcional) invocado con la lista de peers
+                conectados cada vez que cambia.
         """
         self._clients: set[Any] = set()
         self._lock = asyncio.Lock()
@@ -35,6 +38,68 @@ class ClientRegistry:
     def count(self) -> int:
         """Cantidad de clientes conectados actualmente."""
         return len(self._clients)
+
+    @staticmethod
+    def peer_label(connection: Any) -> str:
+        """Etiqueta legible de un cliente (``host:puerto`` remoto).
+
+        Args:
+            connection: Conexión WebSocket registrada.
+
+        Returns:
+            Etiqueta ``host:puerto``; ``"desconocido"`` si no hay dirección.
+        """
+        address = getattr(connection, "remote_address", None)
+        if address is None:
+            return "desconocido"
+        host, port = address[0], address[1]
+        return f"{host}:{port}"
+
+    def peers(self) -> list[str]:
+        """Lista de etiquetas ``host:puerto`` de los clientes conectados.
+
+        Returns:
+            Etiquetas ordenadas para mostrar en la GUI.
+        """
+        return sorted(self.peer_label(c) for c in self._clients)
+
+    def resolve(self, peer: str) -> Any | None:
+        """Resuelve la etiqueta de un peer a su conexión.
+
+        Args:
+            peer: Etiqueta ``host:puerto``; cualquier otro valor
+                (incluido :data:`BROADCAST_TARGET`) devuelve ``None``.
+
+        Returns:
+            La conexión correspondiente, o ``None`` si no existe.
+        """
+        if peer == BROADCAST_TARGET:
+            return None
+        for connection in self._clients:
+            if self.peer_label(connection) == peer:
+                return connection
+        return None
+
+    async def send_to(self, connection: Any, text: str) -> bool:
+        """Envía un texto a un cliente específico.
+
+        Args:
+            connection: Conexión destino.
+            text: Contenido a enviar.
+
+        Returns:
+            ``True`` si el envío salió bien; ``False`` si el cliente estaba
+            muerto (se descarta del registro).
+        """
+        try:
+            await connection.send(text)
+            return True
+        except ConnectionClosed:
+            self._clients.discard(connection)
+            self._notify()
+        except OSError:
+            logger.exception("Fallo de red al enviar a un cliente")
+        return False
 
     @asynccontextmanager
     async def register(self, connection: Any) -> AsyncIterator[None]:
@@ -86,6 +151,6 @@ class ClientRegistry:
         self._notify()
 
     def _notify(self) -> None:
-        """Notifica el cambio en la cantidad de clientes."""
+        """Notifica el cambio en la lista de clientes conectados."""
         if self._on_change is not None:
-            self._on_change(len(self._clients))
+            self._on_change(self.peers())

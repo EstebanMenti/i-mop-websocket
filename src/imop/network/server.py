@@ -18,7 +18,7 @@ from typing import Any
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from imop.network.client_registry import ClientRegistry
+from imop.network.client_registry import BROADCAST_TARGET, ClientRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +26,18 @@ SEQ_KEY = "seq"
 
 
 class WebSocketServer:
-    """Servidor WebSocket de texto; cada frame JSON se pasa al callback."""
+    """Servidor WebSocket de texto; cada frame se pasa al callback.
+
+    Soporta además el envío de líneas de comando hacia los clientes
+    (consola remota estilo SSH) mediante :meth:`send_console_line`.
+    """
 
     def __init__(
         self,
         host: str,
         port: int,
         on_message: Callable[[str], None],
-        on_clients_changed: Callable[[int], None] | None = None,
+        on_clients_changed: Callable[[list[str]], None] | None = None,
     ) -> None:
         """Inicializa el servidor (no escucha hasta :meth:`start`).
 
@@ -42,7 +46,8 @@ class WebSocketServer:
             port: Puerto TCP; ``0`` para elegir uno efímero (tests).
             on_message: Callback por cada frame de texto recibido.
                 Se ejecuta en el loop del servidor; no debe bloquear.
-            on_clients_changed: Callback opcional con el conteo de clientes.
+            on_clients_changed: Callback opcional con la lista de peers
+                conectados cada vez que cambia.
         """
         self._host = host
         self._port = port
@@ -81,6 +86,30 @@ class WebSocketServer:
             self._httpd = None
         await self.registry.close_all()
         logger.info("Servidor WebSocket detenido")
+
+    async def send_console_line(self, text: str, peer: str | None = None) -> int:
+        """Envía una línea de comando de la consola a un cliente (o a todos).
+
+        El texto se normaliza: se recortan los espacios finales y se agrega
+        exactamente un ``\\n`` al final (los intérpretes del ESP trabajan
+        línea a línea).
+
+        Args:
+            text: Comando tal como lo escribió el usuario.
+            peer: Etiqueta ``host:puerto`` del destino; ``None`` o la
+                etiqueta de broadcast envía a todos los clientes.
+
+        Returns:
+            Cantidad de clientes que recibieron el frame.
+        """
+        line = f"{text.rstrip()}\n"
+        if peer and peer != BROADCAST_TARGET:
+            target = self.registry.resolve(peer)
+            if target is None:
+                logger.warning("Peer %s no conectado; comando no enviado", peer)
+                return 0
+            return 1 if await self.registry.send_to(target, line) else 0
+        return await self.registry.broadcast(line)
 
     async def _handler(self, connection: ServerConnection) -> None:
         """Atiende una conexión de cliente hasta que se desconecta.
