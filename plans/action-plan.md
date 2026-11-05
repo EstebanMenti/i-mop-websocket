@@ -30,6 +30,7 @@ Aplicación de escritorio en Python que:
 | 2026-10-29 | Transferencia de archivos: **frames binarios nativos** (control por JSON, datos crudos, CRC32, reanudable) | Sin overhead de codificación, RAM constante en el ESP32, convivencia con telemetría vía `transfer` id | ✅ Aprobada por el usuario |
 | 2026-10-30 | Protocolo v2 (propuesta): **CBOR canónico** para comandos y telemetría nueva | Binario auto-descripto (RFC 8949), ~4-8× más chico que JSON, librerías probadas en ESP32; convive con v1 | 📝 Propuesta — [docs/user/protocol-cbor.md](../docs/user/protocol-cbor.md) |
 | 2026-11-02 | Telemetría IMU: **JSON con un vector por sensor** (`fmt` 2, 25 muestras por mensaje) | Medido en placa con los 8 nodos BLE activos: ≥ 1000 muestras/s de capacidad (≥ 4× la producción) y 0 pérdidas a 100 Hz, con 2,5× menos bytes que el JSON de claves largas; la App lo confirma sin cambios. CBOR `imu_full_batch` queda como formato futuro | ✅ Aprobada por el usuario — [docs/user/protocol.md](../docs/user/protocol.md) §10 |
+| 2026-11-05 | Consola remota estilo SSH sobre WebSocket: **comandos y respuestas en texto plano** (sin envoltorio JSON; el intérprete del ESP es CLI estilo `server`, `pass set <password>`, `pass get`) sobre la misma conexión y puerto existente, sin seguridad (TLS/auth) por ahora, pestaña "Consola" nueva en la GUI | El intérprete del ESP ya habla texto; JSON agregaría parseo innecesario. Enrutamiento simple: frame JSON → telemetría (pipeline actual), frame texto plano → consola. Plan detallado en [plans/consola-ssh-plan.md](consola-ssh-plan.md) | 📝 Propuesta |
 
 ## 3. Roadmap por fases
 
@@ -71,6 +72,15 @@ Aplicación de escritorio en Python que:
 - [ ] Registro de clientes conectados.
 - [ ] Teclas/botones configurables que envían JSON predefinidos.
 - [ ] Documentar protocolo de mensajes bidireccional.
+
+### Fase 5b — Consola remota estilo SSH (pestaña "Consola") ← *PRÓXIMA ENTREGA* — [plans/consola-ssh-plan.md](consola-ssh-plan.md)
+- [ ] Red: `ClientRegistry.send_to()/peers()/resolve()` + `WebSocketServer.send_console_line()` (agrega `\n` al comando) y tests de envío dirigido/broadcast.
+- [ ] Worker: `ServerWorker.send_command()` thread-safe (`run_coroutine_threadsafe`), señal `console_output`, enrutamiento por tipo de frame: JSON → pipeline de telemetría, texto plano → consola.
+- [ ] GUI: `QTabWidget` (Telemetría / Consola) + `ConsolePanel` (salida coloreada, historial ↑/↓, selector de destino, eco local, límite de líneas).
+- [ ] Config: persistir `echo_local` y pestaña activa.
+- [ ] Firmware de referencia del ESP32 (eco + comandos de ejemplo) documentado en [docs/user/protocol.md](../docs/user/protocol.md).
+- [ ] Docs: ARCHITECTURE (flujo bidireccional), FAQ, README, manual de usuario.
+- [ ] QA: ruff + mypy + pytest en verde; registro de la sesión de implementación aquí.
 
 ### Fase 6 — Empaquetado y distribución
 - [ ] Script de build PyInstaller (`.spec`) para Windows (.exe).
@@ -187,6 +197,18 @@ Cada sesión de trabajo con IA debe agregar una entrada al final de esta secció
 - **Rama:** `feature/protocolo-telemetria-imu` (desde `develop`).
 - **Pendiente:** descartar en el servidor las muestras repetidas tras una reconexión (§10.5, punto 4); probar el formato con la placa contra la App;
   implementar `0x8006` cuando se adopte CBOR (el ejemplo `set_hora` de `protocol-cbor.md` codifica −180 como `18 B5`; lo correcto es `38 B3`).
+
+### 2026-11-05 — Sesión 10: Plan de la consola remota estilo SSH
+- **Objetivo (pedido del usuario):** simular una consola SSH por WebSocket (sin seguridad por ahora): el ESP se conecta al servidor como ya lo hace (puerto seleccionable), y desde la PC se envían comandos que el ESP responde, con una pestaña nueva de consola en la GUI.
+- **Corrección del usuario:** los comandos **no son JSON**: son texto plano tipo CLI (`server`, `pass set <password>`, `pass get`). El plan se ajustó: sin envelope, sin `id`/`eof`; respuestas también en texto plano impreso verbatim.
+- **Resultado:** creado [plans/consola-ssh-plan.md](consola-ssh-plan.md) con:
+  - Protocolo de texto plano: la App envía el comando tal cual + `\n` final; el ESP responde con frames de texto que se imprimen verbatim; prompt `esp32> ` re-mostrado tras cada respuesta (consola sin bloqueo).
+  - Decisiones D1-D7: texto plano sin envoltorio, `\n` agregado por la App, sin ACK por `seq` para la consola, enrutamiento por tipo de frame en el worker (JSON válido → pipeline de telemetría intacto; texto plano → consola), selector de destino por peer + broadcast, envío thread-safe con `run_coroutine_threadsafe`.
+  - Cambios por capa: `ClientRegistry.send_to()/peers()/resolve()`, `WebSocketServer.send_console_line()`, `ServerWorker.send_command()` + señal `console_output`, `QTabWidget` con pestañas Telemetría/Consola y nuevo `ConsolePanel` (historial ↑/↓, eco local, límite de líneas), config `echo_local`.
+  - Plan de 8 pasos (Paso 0 rama → Paso 7 QA), riesgos con mitigaciones (respuesta JSON que cae en Telemetría → convención CLI texto plano) y escalamientos futuros (TLS/auth, marcador de fin, CBOR, autocompletado).
+  - Fase **5b** agregada al roadmap y decisión registrada en §2 (estado: propuesta).
+- **Rama prevista:** `feature/consola-ssh` (desde `develop`).
+- **Pendiente:** aprobación del usuario del plan; luego implementar según los pasos 0-7.
 
 ---
 
