@@ -15,12 +15,16 @@ def test_roundtrip_config(tmp_path: Path) -> None:
         filters=[FilterRule(name=f"f{i}_", enabled=i % 2 == 0) for i in range(5)],
         log_enabled=True,
         log_dir=tmp_path / "mislogs",
+        console_echo=False,
+        last_tab=1,
     )
     save_config(config, path)
     loaded = load_config(path)
     assert loaded.port == 9000
     assert loaded.log_enabled is True
     assert loaded.log_dir == tmp_path / "mislogs"
+    assert loaded.console_echo is False
+    assert loaded.last_tab == 1
     assert [rule.name for rule in loaded.filters] == [f"f{i}_" for i in range(5)]
     assert [rule.enabled for rule in loaded.filters] == [i % 2 == 0 for i in range(5)]
 
@@ -45,3 +49,10 @@ def test_config_parcial_se_completa(tmp_path: Path) -> None:
     config = load_config(path)
     assert config.port == 1234
     assert len(config.filters) == 5
+
+
+def test_defaults_de_consola(tmp_path: Path) -> None:
+    """Sin configuración previa: eco local activo y pestaña Telemetría."""
+    config = load_config(tmp_path / "no_existe.json")
+    assert config.console_echo is True
+    assert config.last_tab == 0

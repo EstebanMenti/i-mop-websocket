@@ -2,6 +2,11 @@
 
 Puente asyncio ↔ Qt: el loop corre en este QThread y los mensajes se
 entregan a la GUI mediante señales (thread-safe, queued connections).
+
+Enrutamiento bidireccional:
+- Frame JSON válido → pipeline de telemetría (filtros, logs, panel).
+- Cualquier otro texto → consola remota (señal ``console_output``).
+- La GUI envía líneas de comando con :meth:`send_command` (thread-safe).
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ import logging
 from PySide6.QtCore import QThread, Signal
 
 from imop.core.models import DisplayMessage, ServerStatus
+from imop.core.parser import MessageParseError, parse_message
 from imop.core.pipeline import MessagePipeline
 from imop.network.server import WebSocketServer
 
@@ -22,8 +28,9 @@ class ServerWorker(QThread):
     """Ciclo de vida completo del servidor en un hilo dedicado."""
 
     message_received = Signal(object)
+    console_output = Signal(str)
     state_changed = Signal(object)
-    clients_changed = Signal(int)
+    clients_changed = Signal(list)
     error_occurred = Signal(str)
 
     def __init__(self, host: str, port: int, pipeline: MessagePipeline) -> None:
@@ -86,12 +93,38 @@ class ServerWorker(QThread):
         if self._loop is not None and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._stop_event.set)
 
+    def send_command(self, cmd: str, peer: str | None = None) -> None:
+        """Envía una línea de comando de la consola a un cliente (thread-safe).
+
+        No espera la respuesta del ESP: el frame se publica en el loop del
+        worker y la respuesta llega después por ``console_output``.
+
+        Args:
+            cmd: Comando tal como lo escribió el usuario.
+            peer: Etiqueta ``host:puerto`` del destino; ``None`` difunde a
+                todos los clientes conectados.
+        """
+        if self._loop is None or not self._loop.is_running() or self._server is None:
+            logger.warning("Servidor no activo; comando de consola descartado")
+            return
+        asyncio.run_coroutine_threadsafe(
+            self._server.send_console_line(cmd, peer), self._loop
+        )
+
     def _handle_raw(self, raw: str) -> None:
-        """Callback del servidor: procesa el frame y emite la señal.
+        """Callback del servidor: enruta el frame según su tipo.
+
+        JSON válido va al pipeline de telemetría; cualquier otro texto es
+        salida de la consola remota.
 
         Args:
             raw: Frame de texto recibido.
         """
+        try:
+            parse_message(raw)
+        except MessageParseError:
+            self.console_output.emit(raw)
+            return
         try:
             message: DisplayMessage | None = self._pipeline.process(raw)
         except Exception:

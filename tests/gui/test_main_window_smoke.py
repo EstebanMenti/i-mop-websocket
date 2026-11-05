@@ -91,6 +91,31 @@ def test_limpiar_button_restablece_contador(qapp: object, tmp_path: object) -> N
     window.close()
 
 
+def test_ventana_tiene_pestana_consola(qapp: object, tmp_path: object) -> None:
+    """La ventana principal expone las pestañas Telemetría y Consola."""
+    from imop.config import AppConfig
+    from imop.gui.main_window import MainWindow
+
+    config = AppConfig(log_dir=tmp_path)  # type: ignore[arg-type]
+    window = MainWindow(config)
+    assert window.tabs.count() == 2
+    assert window.tabs.tabText(0) == "Telemetría"
+    assert window.tabs.tabText(1) == "Consola"
+
+    # El contador de clientes del ServerPanel responde a la lista de peers.
+    window._on_clients_changed(["192.168.0.42:4511"])
+    assert window.server_panel.clients_label.text() == "1"
+    assert window.console_panel.current_target() == "192.168.0.42:4511"
+
+    # La salida de consola del worker llega al panel.
+    window._on_console_output("OK")
+    assert "OK" in window.console_panel.output.toPlainText()
+
+    # Enviar con el servidor detenido no lanza errores (solo avisa en la barra).
+    window._on_console_send("server", "192.168.0.42:4511")
+    window.close()
+
+
 def test_alta_tasa_de_mensajes_lote(qapp: object, tmp_path: object) -> None:
     """A alta tasa, el render por lotes mantiene la lista acotada y el buffer vacío."""
     from imop.config import AppConfig

@@ -96,13 +96,13 @@ class ServerPanel(QWidget):
         self.stop_button.setEnabled(running)
         self.port_spin.setEnabled(not running)
 
-    def set_clients(self, count: int) -> None:
+    def set_clients(self, peers: list[str]) -> None:
         """Actualiza el contador de clientes conectados.
 
         Args:
-            count: Cantidad actual de clientes.
+            peers: Lista de etiquetas ``host:puerto`` de los clientes.
         """
-        self.clients_label.setText(str(count))
+        self.clients_label.setText(str(len(peers)))
 
     def is_announce_enabled(self) -> bool:
         """Indica si el anuncio mDNS del servicio está activado.

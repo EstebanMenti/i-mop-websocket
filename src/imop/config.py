@@ -31,6 +31,8 @@ class AppConfig:
         filters: Reglas de filtro por prefijo (máx. ``MAX_FILTERS``).
         log_enabled: Si ``True`` se guardan logs de los filtros coincidentes.
         log_dir: Carpeta destino de los archivos de log.
+        console_echo: Si ``True`` la consola muestra el comando enviado.
+        last_tab: Índice de la última pestaña activa (0 = Telemetría).
     """
 
     port: int = DEFAULT_PORT
@@ -40,6 +42,8 @@ class AppConfig:
     log_enabled: bool = False
     log_dir: Path = DEFAULT_LOG_DIR
     announce_enabled: bool = True
+    console_echo: bool = True
+    last_tab: int = 0
 
 
 def load_config(path: Path = CONFIG_FILE) -> AppConfig:
@@ -65,6 +69,8 @@ def load_config(path: Path = CONFIG_FILE) -> AppConfig:
     config.log_enabled = bool(data.get("log_enabled", config.log_enabled))
     config.log_dir = Path(data.get("log_dir", str(config.log_dir)))
     config.announce_enabled = bool(data.get("announce_enabled", config.announce_enabled))
+    config.console_echo = bool(data.get("console_echo", config.console_echo))
+    config.last_tab = int(data.get("last_tab", config.last_tab))
 
     raw_filters = data.get("filters", [])
     filters: list[FilterRule] = []
@@ -91,6 +97,8 @@ def save_config(config: AppConfig, path: Path = CONFIG_FILE) -> None:
         "log_enabled": config.log_enabled,
         "log_dir": str(config.log_dir),
         "announce_enabled": config.announce_enabled,
+        "console_echo": config.console_echo,
+        "last_tab": config.last_tab,
         "filters": [{"name": rule.name, "enabled": rule.enabled} for rule in config.filters],
     }
     path.parent.mkdir(parents=True, exist_ok=True)

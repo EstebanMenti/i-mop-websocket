@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -21,12 +22,14 @@ from imop.config import AppConfig, save_config
 from imop.constants import DEFAULT_HOST
 from imop.core.models import DisplayMessage, ServerStatus
 from imop.core.pipeline import MessagePipeline
+from imop.gui.panels.console_panel import ConsolePanel
 from imop.gui.panels.filter_panel import FilterPanel
 from imop.gui.panels.log_settings_panel import LogSettingsPanel
 from imop.gui.panels.message_panel import MessagePanel
 from imop.gui.panels.server_panel import ServerPanel
 from imop.gui.workers import ServerWorker
 from imop.logging_service.handlers import FilterLogManager
+from imop.network.client_registry import BROADCAST_TARGET
 from imop.network.discovery import ServiceAnnouncer, default_instance_name
 
 logger = logging.getLogger(__name__)
@@ -55,7 +58,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ UI
 
     def _build_ui(self) -> None:
-        """Crea todos los paneles y el layout principal."""
+        """Crea todos los paneles, las pestañas y el layout principal."""
         central = QWidget()
         main_layout = QVBoxLayout(central)
 
@@ -63,6 +66,7 @@ class MainWindow(QMainWindow):
         self.filter_panel = FilterPanel()
         self.log_panel = LogSettingsPanel(initial_dir=str(self._config.log_dir))
         self.message_panel = MessagePanel()
+        self.console_panel = ConsolePanel()
 
         top_row = QHBoxLayout()
         top_row.addWidget(self.server_panel, stretch=2)
@@ -80,7 +84,15 @@ class MainWindow(QMainWindow):
         vertical_splitter.setStretchFactor(0, 0)
         vertical_splitter.setStretchFactor(1, 1)
 
-        main_layout.addWidget(vertical_splitter)
+        telemetry_tab = QWidget()
+        telemetry_layout = QVBoxLayout(telemetry_tab)
+        telemetry_layout.addWidget(vertical_splitter)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(telemetry_tab, "Telemetría")
+        self.tabs.addTab(self.console_panel, "Consola")
+
+        main_layout.addWidget(self.tabs)
         self.setCentralWidget(central)
         self._build_clock()
         self.statusBar().showMessage("Listo.")
@@ -105,6 +117,8 @@ class MainWindow(QMainWindow):
         self.server_panel.set_announce_enabled(self._config.announce_enabled)
         self.filter_panel.set_rules(self._config.filters)
         self.log_panel.set_enabled_checked(self._config.log_enabled)
+        self.console_panel.set_echo_enabled(self._config.console_echo)
+        self.tabs.setCurrentIndex(max(0, min(self.tabs.count() - 1, self._config.last_tab)))
 
     def _connect_internal(self) -> None:
         """Conecta las señales internas de la ventana."""
@@ -112,6 +126,7 @@ class MainWindow(QMainWindow):
         self.server_panel.stop_requested.connect(self._on_stop)
         self.log_panel.save_enabled_changed.connect(self._on_log_enabled_changed)
         self.log_panel.log_dir_changed.connect(self._on_log_dir_changed)
+        self.console_panel.send_requested.connect(self._on_console_send)
 
     # ------------------------------------------------------------- servidor
 
@@ -137,8 +152,9 @@ class MainWindow(QMainWindow):
 
         self._worker = ServerWorker(host=DEFAULT_HOST, port=port, pipeline=self._pipeline)
         self._worker.message_received.connect(self._on_message)
+        self._worker.console_output.connect(self._on_console_output)
         self._worker.state_changed.connect(self._on_state_changed)
-        self._worker.clients_changed.connect(self.server_panel.set_clients)
+        self._worker.clients_changed.connect(self._on_clients_changed)
         self._worker.error_occurred.connect(self._on_server_error)
         self.server_panel.set_status(ServerStatus.STARTING)
         self._worker.start()
@@ -179,6 +195,35 @@ class MainWindow(QMainWindow):
             message: Mensaje emitido por el worker.
         """
         self.message_panel.append_message(message)
+
+    def _on_console_output(self, text: str) -> None:
+        """Muestra en la consola un frame de texto plano del ESP.
+
+        Args:
+            text: Respuesta cruda del intérprete del ESP32.
+        """
+        self.console_panel.append_output(text)
+
+    def _on_clients_changed(self, peers: list[str]) -> None:
+        """Actualiza el contador de clientes y el selector de la consola.
+
+        Args:
+            peers: Lista de etiquetas ``host:puerto`` conectadas.
+        """
+        self.server_panel.set_clients(peers)
+        self.console_panel.set_peers(peers)
+
+    def _on_console_send(self, cmd: str, peer: str) -> None:
+        """Envía el comando de la consola al ESP elegido.
+
+        Args:
+            cmd: Comando en texto plano.
+            peer: Destino (``host:puerto`` o broadcast).
+        """
+        if self._worker is None:
+            self.statusBar().showMessage("Consola: el servidor no está iniciado.")
+            return
+        self._worker.send_command(cmd, None if peer == BROADCAST_TARGET else peer)
 
     def _on_state_changed(self, status: ServerStatus) -> None:
         """Refleja el estado del servidor en el panel y la barra.
@@ -232,5 +277,7 @@ class MainWindow(QMainWindow):
         self._config.log_enabled = self.log_panel.is_enabled()
         self._config.log_dir = Path(self.log_panel.log_dir())
         self._config.announce_enabled = self.server_panel.is_announce_enabled()
+        self._config.console_echo = self.console_panel.is_echo_enabled()
+        self._config.last_tab = self.tabs.currentIndex()
         save_config(self._config)
         super().closeEvent(event)  # type: ignore[arg-type]
